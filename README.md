@@ -1,4 +1,4 @@
-haxe-jquery-deferred-builder
+haxe-deferred-builder
 ============================
 
 jQuery Deferred Syntax Sugar macro for Haxe3
