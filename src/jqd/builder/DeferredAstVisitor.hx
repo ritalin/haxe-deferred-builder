@@ -72,7 +72,7 @@ class DeferredAstVisitor {
 		var extractInternal = function(meta: MetadataEntry, expr, opt) {
 	        return
 		        switch (meta) {
-		        case { name:":yield", params:_, pos:_ }: SAsync(expr, opt);
+		        case { name:":yield", params:_, pos:_ }: this.edxtractAsyncStatementInternal(expr, opt);
 		        default: SSync(stmt);
 		        }
 		    ;			
@@ -91,6 +91,17 @@ class DeferredAstVisitor {
 	        default:    
 	        	SSync(stmt);
 	        }
+		;
+	}
+
+	private function edxtractAsyncStatementInternal(expr: Expr, opt: AsyncOption) {
+		return
+			switch (expr.expr) {
+			case EParenthesis(e): 
+				edxtractAsyncStatementInternal(e, opt);
+			default:
+				SAsync(expr, opt);
+			}
 		;
 	}
 }

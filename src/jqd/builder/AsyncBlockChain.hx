@@ -85,8 +85,8 @@ class AsyncBlockChain {
 		}
 		else {
 			this.buildAsyncCall(
-				this.next.buildBlockExprInternal(depth, dfdName, child.next),
-				this.buildClosure(depth)
+				child.buildBlockExprInternal(depth, dfdName, child.next),
+				child.buildClosure(depth)
 			);
 		}
 	}
