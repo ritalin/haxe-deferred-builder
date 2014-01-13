@@ -1,5 +1,5 @@
 -cp ../../
--cp ../../../lib/jQueryExternForHaxe
+-cp ../../lib/jQueryExternForHaxe
 -cp ../../../src/
 -main drivers.test1.Main
 -js ../../../build/drivers.test1.js
