@@ -11,7 +11,7 @@ enum AsyncOption {
 enum AsyncExpr {	
 	SAsyncExpr(expr: Expr);
 	SAsyncCall(expr: Expr);
-	SAsyncBlock(blocks: Array<Expr>);
+	SAsyncBlock(ctx: DeferredAstContext, pos: Position);
 }
 
 enum StatementContent {

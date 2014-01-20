@@ -6,7 +6,7 @@ import jqd.builder.Statement;
 
 class DeferredAstContext {
 	private var chains: Array<AsyncBlockChain>;
-	private var depth: Int;
+	public var depth(default, null): Int;
 
 	public function new(depth: Int = 1) {
 		this.chains = new Array<AsyncBlockChain>();
@@ -34,6 +34,11 @@ class DeferredAstContext {
 		};
 	}
 
-	public function buildSubBlock(dfdName: String, p: Position): Void {
+	public function buildSubBlock(dfdName: String, p: Position): Expr {
+		var result = this.chains[0].buildSubBlock(this.depth, dfdName, this.chains.slice(1, -1));
+		return {
+			expr: EBlock(result.syncBlocks.concat(result.asyncExpr != null ? [result.asyncExpr] : [])),
+			pos: p
+		};
 	}
 }

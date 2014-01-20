@@ -1,5 +1,7 @@
 package jqd.builder;
 
+import haxe.ds.Option;
+
 import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Printer;
@@ -14,13 +16,14 @@ typedef BuildResult = {
 
 class AsyncBlockChain {
 	private var syncBlocks: Array<Expr>;
-	private var asyncExpr: AsyncExpr;
+	private var asyncExpr: Option<AsyncExpr>;
 	private var asyncOption: AsyncOption;
 
 
 	public function new(opt: AsyncOption, ?next: AsyncBlockChain) {
 		this.asyncOption = opt;
 		this.syncBlocks = new Array<Expr>();
+		this.asyncExpr = None;
 	}
 
 	public function pushSyncExpr(expr: Expr): Void {
@@ -28,15 +31,14 @@ class AsyncBlockChain {
 	}
 
 	public function pushAsyncExpr(expr: AsyncExpr): Void {
-		this.asyncExpr = expr;
+		this.asyncExpr = Some(expr);
 	}
 
 	public function buildRootBlock(depth: Int, chains: Array<AsyncBlockChain>): Array<Expr> {
 		var dfdName = '_d${depth}';
 		var inst = DeferredFactory.newInstExpr();
 
-
-		var r = this.buildSubBlock(depth, dfdName, chains);
+		var r = this.buildSubBlockInternal(depth, dfdName, chains);
 
 		// When pass follow expression Array.cocat directly, this.resolved has always false, why?
 		var exprs = if (r.asyncExpr == null) { 
@@ -55,6 +57,16 @@ class AsyncBlockChain {
 	}
 
 	public function buildSubBlock(depth: Int, dfdName: String, chains: Array<AsyncBlockChain>): BuildResult {
+		var r = buildSubBlockInternal(depth, dfdName, chains);
+
+		if (r.asyncExpr != null) {
+			r.asyncExpr = this.wrapResolve(depth, dfdName, r);
+		}
+
+		return r;
+	}
+
+	public function buildSubBlockInternal(depth: Int, dfdName: String, chains: Array<AsyncBlockChain>): BuildResult {
 		var r = this.foldAsyncExpr(null, depth, dfdName);
 
 		for (c in chains) {
@@ -79,32 +91,57 @@ class AsyncBlockChain {
 		return 
 			if (result == null) {
 				switch(this.asyncExpr) {
-				case SAsyncCall(expr):
+				case Some(SAsyncCall(expr)):
 					{ asyncExpr: expr, syncBlocks: this.syncBlocks, resolved: false };
 
-				case SAsyncExpr(expr):
+				case Some(SAsyncExpr(expr)):
 					{ 
 						asyncExpr: macro return $i{dfdName}.resolve(${expr}), 
 						syncBlocks: this.syncBlocks, resolved: true 
 					};			
 
-				case SAsyncBlock(blocks):
-					result;	
+				case Some(SAsyncBlock(ctx, p)):
+					var subDfdName = '_d${ctx.depth}';
+					var inst = DeferredFactory.newInstExpr();
+
+					var blocks = this.syncBlocks
+						.concat([ macro var $subDfdName = $inst ])
+						.concat([ ctx.buildSubBlock(subDfdName, p) ])
+					;
+
+					{ 
+						asyncExpr: macro $i{subDfdName}, 
+						syncBlocks: blocks, 
+						resolved: false 
+					};
+
+				default:
+					{ asyncExpr: null, syncBlocks: this.syncBlocks, resolved: false };
 				}	
 			}
 			else {
-				trace(this);
 				switch(this.asyncExpr) {
-				case SAsyncCall(expr) | SAsyncExpr(expr):
+				case Some(SAsyncCall(expr)) | Some(SAsyncExpr(expr)):
 					result.asyncExpr = this.buildAsyncCall(
 						result.asyncExpr,
 						this.buildClosure(depth, expr)
 					);
-					result;
 
-				case SAsyncBlock(blocks):
-					result;
+				case Some(SAsyncBlock(ctx, p)):
+					result.asyncExpr = this.buildAsyncCall(
+						result.asyncExpr,
+						this.buildClosure(depth, ctx.buildRootBlock(p))
+					);
+
+				default:
+					result.asyncExpr = this.buildAsyncCall(
+						result.asyncExpr,
+						this.buildClosure(depth, macro return $i{dfdName}.resolve())
+					);
+					result.resolved = true;
 				}
+
+				result;
 			}
 		;
 	}
@@ -160,7 +197,7 @@ class AsyncBlockChain {
         	extractClosureArgName(depth),
             {
                 pos: Context.currentPos(),
-                expr: EBlock(this.syncBlocks.concat([ macro return $caller ]))
+                expr: EBlock(this.syncBlocks.concat(caller != null ? [ macro return $caller ] : []))
             }
         );		
 	}

@@ -43,8 +43,7 @@ class DeferredAstVisitor {
 	public function processAsyncFunction(fun: Function): Function {
         switch (fun.expr) {
         case { expr: EBlock(blocks), pos: p }: 
-        	fun.expr = processAsyncBlocks(new DeferredAstContext(), blocks).buildRootBlock(p);
-
+        	fun.expr = processAsyncBlocks(1, blocks).buildRootBlock(p);
         default: 
         }
 
@@ -54,12 +53,12 @@ class DeferredAstVisitor {
 	/**
 	  * process block AST
 	  */
-	public function processAsyncBlocks(ctx: DeferredAstContext, blockExprs: Array<Expr>): DeferredAstContext {
-
+	public function processAsyncBlocks(depth: Int, blockExprs: Array<Expr>): DeferredAstContext {
+		var ctx = new DeferredAstContext(depth);
 		var chain = ctx.nextChain(AsyncOption.OptNone);
 
 		for (b in blockExprs) {
-			switch (this.edxtractAsyncStatement(b)) {
+			switch (this.edxtractAsyncStatement(depth, b)) {
 			case SSync(expr): 
 				chain.pushSyncExpr(expr);
 			case SAsync(expr, opt): 
@@ -70,12 +69,12 @@ class DeferredAstVisitor {
 		return ctx;
 	}
 
-	private function edxtractAsyncStatement(stmt: Expr): StatementContent {
+	private function edxtractAsyncStatement(depth: Int, stmt: Expr): StatementContent {
 		var extractInternal = function(meta: MetadataEntry, expr, opt) {
 	        return
 		        switch (meta) {
 		        case { name:":yield", params:_, pos:_ }: 
-		        	SAsync(this.edxtractAsyncStatementInternal(expr), opt);
+		        	SAsync(this.edxtractAsyncStatementInternal(depth, expr), opt);
 		        default: 
 		        	SSync(stmt);
 		        }
@@ -99,14 +98,14 @@ class DeferredAstVisitor {
 		;
 	}
 
-	private function edxtractAsyncStatementInternal(expr: Expr) {
+	private function edxtractAsyncStatementInternal(depth: Int, expr: Expr) {
 		return
 			switch (expr.expr) {
 			case EParenthesis(e): 
-				edxtractAsyncStatementInternal(e);
+				edxtractAsyncStatementInternal(depth, e);
 
 			case EBlock(blocks):
-				SAsyncBlock(blocks);
+				SAsyncBlock(this.processAsyncBlocks(depth+1, blocks), expr.pos);
 
 			case ECall(_, _):
 				SAsyncCall(expr);
