@@ -8,7 +8,13 @@ enum AsyncOption {
 	OptReturn;
 }
 
+enum AsyncExpr {	
+	SAsyncExpr(expr: Expr);
+	SAsyncCall(expr: Expr);
+	SAsyncBlock(blocks: Array<Expr>);
+}
+
 enum StatementContent {
 	SSync(expr: Expr);
-	SAsync(expr: Expr, opt: AsyncOption);
+	SAsync(expr: AsyncExpr, opt: AsyncOption);
 }

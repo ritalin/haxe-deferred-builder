@@ -43,7 +43,7 @@ class DeferredAstVisitor {
 	public function processAsyncFunction(fun: Function): Function {
         switch (fun.expr) {
         case { expr: EBlock(blocks), pos: p }: 
-        	fun.expr = processAsyncBlocks(new DeferredAstContext(), blocks).buildBlock(p);
+        	fun.expr = processAsyncBlocks(new DeferredAstContext(), blocks).buildRootBlock(p);
 
         default: 
         }
@@ -56,12 +56,14 @@ class DeferredAstVisitor {
 	  */
 	public function processAsyncBlocks(ctx: DeferredAstContext, blockExprs: Array<Expr>): DeferredAstContext {
 
+		var chain = ctx.nextChain(AsyncOption.OptNone);
+
 		for (b in blockExprs) {
 			switch (this.edxtractAsyncStatement(b)) {
 			case SSync(expr): 
-				ctx.pushSyncExpr(expr);
+				chain.pushSyncExpr(expr);
 			case SAsync(expr, opt): 
-				ctx.pushAsyncExpr(expr, opt);
+				chain = ctx.pushChain(chain, expr, opt);
 			}	
 		}
 
@@ -72,11 +74,14 @@ class DeferredAstVisitor {
 		var extractInternal = function(meta: MetadataEntry, expr, opt) {
 	        return
 		        switch (meta) {
-		        case { name:":yield", params:_, pos:_ }: this.edxtractAsyncStatementInternal(expr, opt);
-		        default: SSync(stmt);
+		        case { name:":yield", params:_, pos:_ }: 
+		        	SAsync(this.edxtractAsyncStatementInternal(expr), opt);
+		        default: 
+		        	SSync(stmt);
 		        }
 		    ;			
 		}
+
 		return 
 		    switch (stmt.expr) {
 	        case EMeta(meta, expr): 
@@ -94,13 +99,20 @@ class DeferredAstVisitor {
 		;
 	}
 
-	private function edxtractAsyncStatementInternal(expr: Expr, opt: AsyncOption) {
+	private function edxtractAsyncStatementInternal(expr: Expr) {
 		return
 			switch (expr.expr) {
 			case EParenthesis(e): 
-				edxtractAsyncStatementInternal(e, opt);
+				edxtractAsyncStatementInternal(e);
+
+			case EBlock(blocks):
+				SAsyncBlock(blocks);
+
+			case ECall(_, _):
+				SAsyncCall(expr);
+
 			default:
-				SAsync(expr, opt);
+				SAsyncExpr(expr);
 			}
 		;
 	}

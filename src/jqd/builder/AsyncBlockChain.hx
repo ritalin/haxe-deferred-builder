@@ -6,17 +6,19 @@ import haxe.macro.Printer;
 
 import jqd.builder.Statement;
 
+typedef BuildResult = {
+	var syncBlocks: Array<Expr>;
+	var asyncExpr: Expr;
+	var resolved: Bool;
+}
+
 class AsyncBlockChain {
-	private var next: AsyncBlockChain;
 	private var syncBlocks: Array<Expr>;
-	private var asyncExpr: Expr;
+	private var asyncExpr: AsyncExpr;
 	private var asyncOption: AsyncOption;
-	private var resolved: Bool;
 
 
 	public function new(opt: AsyncOption, ?next: AsyncBlockChain) {
-		this.resolved = false;
-		this.next = next;
 		this.asyncOption = opt;
 		this.syncBlocks = new Array<Expr>();
 	}
@@ -25,71 +27,114 @@ class AsyncBlockChain {
 		this.syncBlocks.push(expr);
 	}
 
-	public function newChain(expr: Expr, opt: AsyncOption) {
+	public function pushAsyncExpr(expr: AsyncExpr): Void {
 		this.asyncExpr = expr;
-
-		return new AsyncBlockChain(opt, this);
 	}
 
-	public function buildBlockExpr(depth: Int): Array<Expr> {
+	public function buildRootBlock(depth: Int, chains: Array<AsyncBlockChain>): Array<Expr> {
 		var dfdName = '_d${depth}';
 		var inst = DeferredFactory.newInstExpr();
 
+
+		var r = this.buildSubBlock(depth, dfdName, chains);
+
 		// When pass follow expression Array.cocat directly, this.resolved has always false, why?
-		var expr = if (this.next == null) { 
+		var exprs = if (r.asyncExpr == null) { 
 			[];
 		}
 		else {
-			[ this.wrapResolve(depth, dfdName, this.buildBlockExprInternal(depth, dfdName, this.next)) ];
-		}
+			[this.wrapResolve(depth, dfdName, r)];
+		}		
 
 		return new Array<Expr>()
 			.concat([ macro var $dfdName = $inst ])
-			.concat(this.getSyncBlocks())
-			.concat(expr)
-			.concat(this.resolved ? [] : [ macro return $i{dfdName} ])
+			.concat(r.syncBlocks)
+			.concat(exprs)
+			.concat(r.resolved ? [] : [ macro return $i{dfdName} ])
 		;
 	}
 
-	private function getSyncBlocks(): Array<Expr> {
-		return (this.next == null) ? this.syncBlocks : this.next.getSyncBlocks();
+	public function buildSubBlock(depth: Int, dfdName: String, chains: Array<AsyncBlockChain>): BuildResult {
+		var r = this.foldAsyncExpr(null, depth, dfdName);
+
+		for (c in chains) {
+			r = c.foldAsyncExpr(r, depth, dfdName);
+		}
+
+		return r;
 	}
 
-	private function wrapResolve(depth: Int, dfdName: String, expr: Expr): Expr {
+	private function wrapResolve(depth: Int, dfdName: String, result: BuildResult): Expr {
 		return
-			if (this.resolved) {
-				expr;
+			if (result.resolved) {
+				result.asyncExpr;
 			}
 			else {
-				this.buildAsyncCall(expr, this.buildResolveClosure(depth, dfdName));
+				this.buildAsyncCall(result.asyncExpr, this.buildResolveClosure(depth, dfdName));
 			}
 		;
 	}
 
-	private function buildBlockExprInternal(depth: Int, dfdName: String, child: AsyncBlockChain): Expr {
-		return if (child.next == null) {
-			switch (child.asyncExpr.expr) {
-			case EConst(_) | EBinop(_, _, _) | EField(_, _) | EArrayDecl(_) | ENew(_, _) | EUnop(_, _):
-				this.resolved = true;
+	private function foldAsyncExpr(result: BuildResult, depth: Int, dfdName: String): BuildResult {
+		return 
+			if (result == null) {
+				switch(this.asyncExpr) {
+				case SAsyncCall(expr):
+					{ asyncExpr: expr, syncBlocks: this.syncBlocks, resolved: false };
 
-				var arg = child.asyncExpr;
-				macro return $i{dfdName}.resolve(${arg});
+				case SAsyncExpr(expr):
+					{ 
+						asyncExpr: macro return $i{dfdName}.resolve(${expr}), 
+						syncBlocks: this.syncBlocks, resolved: true 
+					};			
 
-			case ECall(_, _):
-				child.asyncExpr;
-
-			default:
-				trace(child.asyncExpr);
-				throw "unsupported !!"; 
+				case SAsyncBlock(blocks):
+					result;	
+				}	
 			}
-		}
-		else {
-			this.buildAsyncCall(
-				child.buildBlockExprInternal(depth, dfdName, child.next),
-				child.buildClosure(depth)
-			);
-		}
+			else {
+				trace(this);
+				switch(this.asyncExpr) {
+				case SAsyncCall(expr) | SAsyncExpr(expr):
+					result.asyncExpr = this.buildAsyncCall(
+						result.asyncExpr,
+						this.buildClosure(depth, expr)
+					);
+					result;
+
+				case SAsyncBlock(blocks):
+					result;
+				}
+			}
+		;
 	}
+
+	// private function buildBlockInternal(depth: Int, dfdName: String, child: AsyncBlockChain): Array<Expr> {
+	// 	return if (child.next == null) {
+	// 		switch(child.asyncStmt) {
+	// 		case SAsyncCall(expr, opt):
+	// 			[expr];
+
+	// 		case SAsyncExpr(expr, opt):
+	// 			this.resolved = true;
+
+	// 			var arg = child.asyncExpr;
+	// 			[macro return $i{dfdName}.resolve(${arg})];				
+
+	// 		case SAsyncBlock(blocks):
+	// 			this.resolved = true;
+	// 			[]
+	// 		default:
+	// 			throw "unsupported !!"; 
+	// 		}
+	// 	}
+	// 	else {
+	// 		[this.buildAsyncCall(
+	// 			child.buildBlockExprInternal(depth, dfdName, child.next),
+	// 			child.buildClosure(depth)
+	// 		)];
+	// 	}
+	// }
 
 	public function buildAsyncCall(receiver: Expr, arg: Expr): Expr {
         return {
@@ -110,9 +155,7 @@ class AsyncBlockChain {
 		;
 	}
 
-	private function buildClosure(depth) {
-		var caller = this.asyncExpr;
-
+	private function buildClosure(depth, caller) {
         return buildClosureInternal(
         	extractClosureArgName(depth),
             {
