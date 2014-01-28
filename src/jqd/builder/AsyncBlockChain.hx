@@ -34,7 +34,7 @@ class AsyncBlockChain {
 		this.asyncExpr = Some(expr);
 	}
 
-	public function buildRootBlock(depth: Int, chains: Array<AsyncBlockChain>): Array<Expr> {
+	public function buildRootBlock(depth: Int, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain): Array<Expr> {
 		var dfdName = '_d${depth}';
 		var inst = DeferredFactory.newInstExpr();
 
@@ -45,7 +45,7 @@ class AsyncBlockChain {
 			[];
 		}
 		else {
-			[this.wrapResolve(depth, dfdName, r)];
+			[lastChain.wrapResolve(depth, dfdName, false, r)];
 		}		
 
 		return new Array<Expr>()
@@ -56,11 +56,11 @@ class AsyncBlockChain {
 		;
 	}
 
-	public function buildSubBlock(depth: Int, dfdName: String, chains: Array<AsyncBlockChain>): BuildResult {
+	public function buildSubBlock(depth: Int, dfdName: String, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain): BuildResult {
 		var r = buildSubBlockInternal(depth, dfdName, chains);
 
 		if (r.asyncExpr != null) {
-			r.asyncExpr = this.wrapResolve(depth, dfdName, r);
+			r.asyncExpr = lastChain.wrapResolve(depth, dfdName, true, r);
 		}
 
 		return r;
@@ -76,13 +76,13 @@ class AsyncBlockChain {
 		return r;
 	}
 
-	private function wrapResolve(depth: Int, dfdName: String, result: BuildResult): Expr {
+	private function wrapResolve(depth: Int, dfdName: String, alwaysReturn: Bool, result: BuildResult): Expr {
 		return
 			if (result.resolved) {
 				result.asyncExpr;
 			}
 			else {
-				this.buildAsyncCall(result.asyncExpr, this.buildResolveClosure(depth, dfdName));
+				this.buildAsyncCall(result.asyncExpr, this.buildResolveClosure(depth, dfdName, alwaysReturn));
 			}
 		;
 	}
@@ -146,33 +146,6 @@ class AsyncBlockChain {
 		;
 	}
 
-	// private function buildBlockInternal(depth: Int, dfdName: String, child: AsyncBlockChain): Array<Expr> {
-	// 	return if (child.next == null) {
-	// 		switch(child.asyncStmt) {
-	// 		case SAsyncCall(expr, opt):
-	// 			[expr];
-
-	// 		case SAsyncExpr(expr, opt):
-	// 			this.resolved = true;
-
-	// 			var arg = child.asyncExpr;
-	// 			[macro return $i{dfdName}.resolve(${arg})];				
-
-	// 		case SAsyncBlock(blocks):
-	// 			this.resolved = true;
-	// 			[]
-	// 		default:
-	// 			throw "unsupported !!"; 
-	// 		}
-	// 	}
-	// 	else {
-	// 		[this.buildAsyncCall(
-	// 			child.buildBlockExprInternal(depth, dfdName, child.next),
-	// 			child.buildClosure(depth)
-	// 		)];
-	// 	}
-	// }
-
 	public function buildAsyncCall(receiver: Expr, arg: Expr): Expr {
         return {
             pos: receiver.pos,
@@ -183,18 +156,17 @@ class AsyncBlockChain {
         };
 	}
 
-	private function extractClosureArgName(depth: Int): String {
-		return 
+	private function buildClosure(depth: Int, caller) {
+		var argName = 
 			switch(this.asyncOption) {
 			case OptVar(name): name;
-			default: '_tmp${depth}';
+			case OptReturn: '_return${depth}';
+			default: null;
 			}
-		;
-	}
+		;        
 
-	private function buildClosure(depth, caller) {
-        return buildClosureInternal(
-        	extractClosureArgName(depth),
+		return buildClosureInternal(
+        	argName,
             {
                 pos: Context.currentPos(),
                 expr: EBlock(this.syncBlocks.concat(caller != null ? [ macro return $caller ] : []))
@@ -202,24 +174,45 @@ class AsyncBlockChain {
         );		
 	}
 
-	private function buildResolveClosure(depth: Int, dfdName: String) {
-		var argName = extractClosureArgName(depth);
+	private function buildResolveClosure(depth: Int, dfdName: String, alwaysReturn: Bool) {
+		var argName = 
+			switch(this.asyncOption) {
+			case OptVar(_): null;
+			case OptReturn: '_return${depth}';
+			default: alwaysReturn ? '_tmp${depth}' : null;
+			}
+		;
+
+		var closureExpr = 
+			if (argName != null) {
+				macro return $i{dfdName}.resolve($i{argName});
+			} 
+			else {
+				macro return $i{dfdName}.resolve();
+			}
+		;
 
         return buildClosureInternal(
         	argName,
             {
                 pos: Context.currentPos(),
-                expr: EBlock(this.syncBlocks.concat([ macro return $i{dfdName}.resolve($i{argName}) ]))
+                expr: EBlock(this.syncBlocks.concat([ closureExpr ]))
             }        
         );
 	}
 
-    private function buildClosureInternal(argName: String, blocksExpr: Expr): Expr {
-        var args = [{ 
-            name: argName, 
-            type: TPath({ name: "Dynamic", pack: [], params: [] }), 
-            opt: false, value: null 
-        }];
+    private function buildClosureInternal(argName: Null<String>, blocksExpr: Expr): Expr {
+        var args = 
+        	if (argName != null) {
+        		[{ 
+		            name: argName, 
+		            type: TPath({ name: "Dynamic", pack: [], params: [] }), 
+		            opt: false, value: null 
+		        }];
+		    }
+		    else {
+		    	[];
+		    }
 
         return {
             expr: EFunction(null, {

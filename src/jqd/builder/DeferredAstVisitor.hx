@@ -74,7 +74,7 @@ class DeferredAstVisitor {
 	        return
 		        switch (meta) {
 		        case { name:":yield", params:_, pos:_ }: 
-		        	SAsync(this.edxtractAsyncStatementInternal(depth, expr), opt);
+		        	SAsync(this.extractAsyncStatementInternal(depth, expr), opt);
 		        default: 
 		        	SSync(stmt);
 		        }
@@ -98,11 +98,11 @@ class DeferredAstVisitor {
 		;
 	}
 
-	private function edxtractAsyncStatementInternal(depth: Int, expr: Expr) {
+	private function extractAsyncStatementInternal(depth: Int, expr: Expr) {
 		return
 			switch (expr.expr) {
 			case EParenthesis(e): 
-				edxtractAsyncStatementInternal(depth, e);
+				extractAsyncStatementInternal(depth, e);
 
 			case EBlock(blocks):
 				SAsyncBlock(this.processAsyncBlocks(depth+1, blocks), expr.pos);
