@@ -22,6 +22,17 @@ private class Target {
 		}
 		var y = x+10;
 		@:yield callAsync2([1]);
+	}
+
+	@:async
+	public function run2(): Promise {
+		var x = 200;
+		@:yield {			
+			var x = 10;
+			@:yield callAsync(1);
+		}
+		var y = x+10;
+		return @:yield callAsync2([1]);
 
 		// var _d2 = new Deferred();
 		// {

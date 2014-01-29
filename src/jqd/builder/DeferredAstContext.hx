@@ -43,7 +43,7 @@ class DeferredAstContext {
 	public var includeVars(get, null): AsyncOption;
 
 	private function get_includeVars() {
-		return this.vars.length > 0 ? OptVars(this.vars) : OptNone;
+		return this.vars.length > 0 ? OptVars(this.vars.slice(0)) : OptNone;
 	}
 
 	public function buildRootBlock(p: Position): Expr {
