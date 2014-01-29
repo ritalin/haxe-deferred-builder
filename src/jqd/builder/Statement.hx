@@ -4,7 +4,7 @@ import haxe.macro.Expr;
 
 enum AsyncOption {
 	OptNone;
-	OptVar(varName: String);
+	OptVars(varNames: Array<String>);
 	OptReturn;
 }
 

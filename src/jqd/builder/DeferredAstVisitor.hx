@@ -3,6 +3,7 @@ package jqd.builder;
 import haxe.macro.Expr;
 
 import jqd.builder.Statement;
+import jqd.util.StringSet;
 
 using Lambda;
 
@@ -43,7 +44,9 @@ class DeferredAstVisitor {
 	public function processAsyncFunction(fun: Function): Function {
         switch (fun.expr) {
         case { expr: EBlock(blocks), pos: p }: 
-        	fun.expr = processAsyncBlocks(1, blocks).buildRootBlock(p);
+        	var argNames = fun.args.map(function(arg) return arg.name);
+
+        	fun.expr = processAsyncBlocks(1, blocks, StringSet.from(argNames)).buildRootBlock(p);
         default: 
         }
 
@@ -53,12 +56,12 @@ class DeferredAstVisitor {
 	/**
 	  * process block AST
 	  */
-	public function processAsyncBlocks(depth: Int, blockExprs: Array<Expr>): DeferredAstContext {
-		var ctx = new DeferredAstContext(depth);
+	public function processAsyncBlocks(depth: Int, blockExprs: Array<Expr>, varExcludes: StringSet): DeferredAstContext {
+		var ctx = new DeferredAstContext(depth, varExcludes);
 		var chain = ctx.nextChain(AsyncOption.OptNone);
 
 		for (b in blockExprs) {
-			switch (this.edxtractAsyncStatement(depth, b)) {
+			switch (this.edxtractAsyncStatement(ctx, depth, b)) {
 			case SSync(expr): 
 				chain.pushSyncExpr(expr);
 			case SAsync(expr, opt): 
@@ -69,7 +72,7 @@ class DeferredAstVisitor {
 		return ctx;
 	}
 
-	private function edxtractAsyncStatement(depth: Int, stmt: Expr): StatementContent {
+	private function edxtractAsyncStatement(ctx: DeferredAstContext, depth: Int, stmt: Expr): StatementContent {
 		var extractInternal = function(meta: MetadataEntry, expr, opt) {
 	        return
 		        switch (meta) {
@@ -81,13 +84,15 @@ class DeferredAstVisitor {
 		    ;			
 		}
 
+
+
 		return 
 		    switch (stmt.expr) {
 	        case EMeta(meta, expr): 
-	            extractInternal(meta, expr, OptNone);
+	            extractInternal(meta, expr, ctx.includeVars);
 	        
 	        case EVars([{ expr: { expr: EMeta(meta, expr), pos:_ }, name: n, type:_ }]):
-	            extractInternal(meta, expr, OptVar(n));
+	            extractInternal(meta, expr, ctx.includeVarName(n));
 
 	        case EReturn({ expr: EMeta(meta, expr), pos:_ }):
 	            extractInternal(meta, expr, OptReturn);
@@ -105,7 +110,7 @@ class DeferredAstVisitor {
 				extractAsyncStatementInternal(depth, e);
 
 			case EBlock(blocks):
-				SAsyncBlock(this.processAsyncBlocks(depth+1, blocks), expr.pos);
+				SAsyncBlock(this.processAsyncBlocks(depth+1, blocks, new StringSet()), expr.pos);
 
 			case ECall(_, _):
 				SAsyncCall(expr);

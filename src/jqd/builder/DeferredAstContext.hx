@@ -3,15 +3,22 @@ package jqd.builder;
 import haxe.macro.Expr;
 
 import jqd.builder.Statement;
+import jqd.util.StringSet;
 
 class DeferredAstContext {
 	private var chains: Array<AsyncBlockChain>;
 	private var lastChain: AsyncBlockChain;
-	public var depth(default, null): Int;
+	private var vars: Array<String>;
 
-	public function new(depth: Int = 1) {
+	public var depth(default, null): Int;
+	public var varExcludes(default, null): StringSet;
+
+
+	public function new(depth: Int = 1, varExcludes: StringSet) {
 		this.chains = new Array<AsyncBlockChain>();
 		this.depth = depth;
+		this.varExcludes = varExcludes;
+		this.vars = [];
 	}
 
 	public function nextChain(opt: AsyncOption): AsyncBlockChain {
@@ -23,6 +30,20 @@ class DeferredAstContext {
 		this.chains.push(chain);
 
 		return this.nextChain(opt);
+	}
+
+	public function includeVarName(name: String): AsyncOption {
+		if (! this.varExcludes.exists(name)) {
+			this.vars.push(name);
+		}
+
+		return this.includeVars;
+	}
+
+	public var includeVars(get, null): AsyncOption;
+
+	private function get_includeVars() {
+		return this.vars.length > 0 ? OptVars(this.vars) : OptNone;
 	}
 
 	public function buildRootBlock(p: Position): Expr {

@@ -157,16 +157,16 @@ class AsyncBlockChain {
 	}
 
 	private function buildClosure(depth: Int, caller) {
-		var argName = 
+		var args = 
 			switch(this.asyncOption) {
-			case OptVar(name): name;
-			case OptReturn: '_return${depth}';
-			default: null;
+			case OptVars(names): names;
+			case OptReturn: ['_return${depth}'];
+			default: [];
 			}
 		;        
 
 		return buildClosureInternal(
-        	argName,
+        	args,
             {
                 pos: Context.currentPos(),
                 expr: EBlock(this.syncBlocks.concat(caller != null ? [ macro return $caller ] : []))
@@ -175,25 +175,22 @@ class AsyncBlockChain {
 	}
 
 	private function buildResolveClosure(depth: Int, dfdName: String, alwaysReturn: Bool) {
-		var argName = 
+		var args = 
 			switch(this.asyncOption) {
-			case OptVar(_): null;
-			case OptReturn: '_return${depth}';
-			default: alwaysReturn ? '_tmp${depth}' : null;
+			case OptVars(_): [];
+			case OptReturn: ['_return${depth}'];
+			default: alwaysReturn ? ['_tmp${depth}'] : [];
 			}
 		;
 
-		var closureExpr = 
-			if (argName != null) {
-				macro return $i{dfdName}.resolve($i{argName});
-			} 
-			else {
-				macro return $i{dfdName}.resolve();
-			}
-		;
+		var returns = args.map(function(arg) {
+			return macro $i{arg};
+		});
+
+		var closureExpr = macro return $i{dfdName}.resolveWith($i{dfdName}, [$a{returns}]);
 
         return buildClosureInternal(
-        	argName,
+        	args,
             {
                 pos: Context.currentPos(),
                 expr: EBlock(this.syncBlocks.concat([ closureExpr ]))
@@ -201,18 +198,14 @@ class AsyncBlockChain {
         );
 	}
 
-    private function buildClosureInternal(argName: Null<String>, blocksExpr: Expr): Expr {
-        var args = 
-        	if (argName != null) {
-        		[{ 
-		            name: argName, 
-		            type: TPath({ name: "Dynamic", pack: [], params: [] }), 
-		            opt: false, value: null 
-		        }];
-		    }
-		    else {
-		    	[];
-		    }
+    private function buildClosureInternal(argNames: Array<String>, blocksExpr: Expr): Expr {
+        var args = argNames.map(function(name) {
+			return { 
+	            name: name, 
+	            type: TPath({ name: "Dynamic", pack: [], params: [] }), 
+	            opt: false, value: null 
+	        };
+        });
 
         return {
             expr: EFunction(null, {
