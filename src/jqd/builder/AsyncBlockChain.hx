@@ -14,6 +14,11 @@ typedef BuildResult = {
 	var resolved: Bool;
 }
 
+private typedef ResolveIdentifier = {
+	var argNames: Array<String>;
+	var resolveVars: Array<String>;
+}
+
 class AsyncBlockChain {
 	private var syncBlocks: Array<Expr>;
 	private var asyncExpr: Option<AsyncExpr>;
@@ -182,24 +187,27 @@ class AsyncBlockChain {
 	}
 
 	private function buildResolveClosure(depth: Int, dfdName: String, alwaysReturn: Bool) {
-		var varExtractor = function() {
-			return
-				switch(this.asyncOption) {
-				case OptVars(names): names;
-				case OptReturn: ['_return${depth}'];
-				case OptNone: ['_tmp${depth}'];
-				}
-			;
-		};
+		var resolveNone = function(): ResolveIdentifier return { argNames: [], resolveVars: [] };
+		var resolveId: ResolveIdentifier = 
+			switch(this.asyncOption) {
+			case OptNone: 
+				alwaysReturn ? { argNames: ['_tmp${depth}'], resolveVars: this.resolveVars } : resolveNone();
 
-		var returns = this.resolveVars.map(function(arg) {
+			case OptVars(names): alwaysReturn ? { argNames: names, resolveVars: this.resolveVars } : resolveNone();
+			case OptReturn: 
+				var name = '_return${depth}';
+				{ argNames: [name], resolveVars: [name] };
+			}
+		;
+
+		var returns = resolveId.resolveVars.map(function(arg) {
 			return macro $i{arg};
 		});
 
 		var closureExpr = macro return $i{dfdName}.resolveWith($i{dfdName}, [$a{returns}]);
 
         return buildClosureInternal(
-        	alwaysReturn ? varExtractor() : [],
+        	resolveId.argNames,
             {
                 pos: Context.currentPos(),
                 expr: EBlock(this.syncBlocks.concat([ closureExpr ]))
