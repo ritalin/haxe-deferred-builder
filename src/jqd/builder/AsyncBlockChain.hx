@@ -18,23 +18,28 @@ class AsyncBlockChain {
 	private var syncBlocks: Array<Expr>;
 	private var asyncExpr: Option<AsyncExpr>;
 	private var asyncOption: AsyncOption;
+	private var resolveVars: Array<String>;
 
 
-	public function new(opt: AsyncOption, ?next: AsyncBlockChain) {
+	public function new(opt: AsyncOption) {
 		this.asyncOption = opt;
 		this.syncBlocks = new Array<Expr>();
 		this.asyncExpr = None;
+		this.resolveVars = [];
 	}
 
 	public function pushSyncExpr(expr: Expr): Void {
 		this.syncBlocks.push(expr);
 	}
 
-	public function pushAsyncExpr(expr: AsyncExpr): Void {
+	public function pushAsyncExpr(expr: AsyncExpr, resolveVars: Array<String>): AsyncBlockChain {
 		this.asyncExpr = Some(expr);
+		this.resolveVars = this.resolveVars.concat(resolveVars);
+
+		return this;
 	}
 
-	public function buildRootBlock(depth: Int, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain): Array<Expr> {
+	public function buildRootBlock(depth: Int, alwaysReturn: Bool, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain): Array<Expr> {
 		var dfdName = '_d${depth}';
 		var inst = DeferredFactory.newInstExpr();
 
@@ -45,7 +50,7 @@ class AsyncBlockChain {
 			[];
 		}
 		else {
-			[lastChain.wrapResolve(depth, dfdName, false, r)];
+			[lastChain.wrapResolve(depth, dfdName, alwaysReturn, r)];
 		}		
 
 		return new Array<Expr>()
@@ -130,13 +135,13 @@ class AsyncBlockChain {
 				case Some(SAsyncBlock(ctx, p)):
 					result.asyncExpr = this.buildAsyncCall(
 						result.asyncExpr,
-						this.buildClosure(depth, ctx.buildRootBlock(p))
+						this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), ctx.buildRootBlock(p, true))
 					);
 
 				default:
 					result.asyncExpr = this.buildAsyncCall(
 						result.asyncExpr,
-						this.buildClosure(depth, macro return $i{dfdName}.resolve())
+						this.buildClosure(depth, macro $i{dfdName}.reject())
 					);
 					result.resolved = true;
 				}
@@ -156,17 +161,19 @@ class AsyncBlockChain {
         };
 	}
 
-	private function buildClosure(depth: Int, caller) {
-		var args = 
-			switch(this.asyncOption) {
-			case OptVars(names): names;
+	private function extractClodureArgNames(depth: Int, opt: AsyncOption): Array<String> {
+		return
+			switch(opt) {
+			case OptVars(name): name;
 			case OptReturn: ['_return${depth}'];
 			default: [];
 			}
-		;        
+		;	
+	}
 
+	private function buildClosure(depth: Int, caller) {
 		return buildClosureInternal(
-        	args,
+        	extractClodureArgNames(depth, this.asyncOption),
             {
                 pos: Context.currentPos(),
                 expr: EBlock(this.syncBlocks.concat(caller != null ? [ macro return $caller ] : []))
@@ -175,22 +182,24 @@ class AsyncBlockChain {
 	}
 
 	private function buildResolveClosure(depth: Int, dfdName: String, alwaysReturn: Bool) {
-		var args = 
-			switch(this.asyncOption) {
-			case OptVars(_): [];
-			case OptReturn: ['_return${depth}'];
-			default: alwaysReturn ? ['_tmp${depth}'] : [];
-			}
-		;
+		var varExtractor = function() {
+			return
+				switch(this.asyncOption) {
+				case OptVars(names): names;
+				case OptReturn: ['_return${depth}'];
+				case OptNone: ['_tmp${depth}'];
+				}
+			;
+		};
 
-		var returns = args.map(function(arg) {
+		var returns = this.resolveVars.map(function(arg) {
 			return macro $i{arg};
 		});
 
 		var closureExpr = macro return $i{dfdName}.resolveWith($i{dfdName}, [$a{returns}]);
 
         return buildClosureInternal(
-        	args,
+        	alwaysReturn ? varExtractor() : [],
             {
                 pos: Context.currentPos(),
                 expr: EBlock(this.syncBlocks.concat([ closureExpr ]))

@@ -17,7 +17,7 @@ private class Target {
 		var n1 = @:yield callAsync(1);
 		var n2 = @:yield callAsync(n1);
 
-		@:yield callAsync2(n2);
+		return @:yield callAsync2(n2);
 	}
 
 	@:async

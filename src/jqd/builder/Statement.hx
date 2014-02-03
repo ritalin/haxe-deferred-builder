@@ -8,7 +8,8 @@ enum AsyncOption {
 	OptReturn;
 }
 
-enum AsyncExpr {	
+enum AsyncExpr {
+	SAsyncBlank;
 	SAsyncExpr(expr: Expr);
 	SAsyncCall(expr: Expr);
 	SAsyncBlock(ctx: DeferredAstContext, pos: Position);

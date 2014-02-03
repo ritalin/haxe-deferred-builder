@@ -1,6 +1,7 @@
 package jqd.builder;
 
 import haxe.macro.Expr;
+import haxe.ds.Option;
 
 import jqd.builder.Statement;
 import jqd.util.StringSet;
@@ -46,7 +47,8 @@ class DeferredAstVisitor {
         case { expr: EBlock(blocks), pos: p }: 
         	var argNames = fun.args.map(function(arg) return arg.name);
 
-        	fun.expr = processAsyncBlocks(1, blocks, StringSet.from(argNames)).buildRootBlock(p);
+        	fun.expr = processAsyncBlocks(1, blocks, OptNone, StringSet.from(argNames), []).buildRootBlock(p, false);
+        	trace(new haxe.macro.Printer().printFunction(fun));
         default: 
         }
 
@@ -56,9 +58,9 @@ class DeferredAstVisitor {
 	/**
 	  * process block AST
 	  */
-	public function processAsyncBlocks(depth: Int, blockExprs: Array<Expr>, varExcludes: StringSet): DeferredAstContext {
-		var ctx = new DeferredAstContext(depth, varExcludes);
-		var chain = ctx.nextChain(AsyncOption.OptNone);
+	public function processAsyncBlocks(depth: Int, blockExprs: Array<Expr>, defaultOpt: AsyncOption, varExcludes: StringSet, varIncludes: Array<String>): DeferredAstContext {
+		var ctx = new DeferredAstContext(depth, varExcludes, varIncludes);
+		var chain = ctx.nextChain(defaultOpt);
 
 		for (b in blockExprs) {
 			switch (this.edxtractAsyncStatement(ctx, depth, b)) {
@@ -73,29 +75,41 @@ class DeferredAstVisitor {
 	}
 
 	private function edxtractAsyncStatement(ctx: DeferredAstContext, depth: Int, stmt: Expr): StatementContent {
-		var extractInternal = function(meta: MetadataEntry, expr, opt) {
+		var extractInternal = function(meta: MetadataEntry, expr, opt, nestRequired) {
 	        return
 		        switch (meta) {
 		        case { name:":yield", params:_, pos:_ }: 
-		        	SAsync(this.extractAsyncStatementInternal(depth, expr), opt);
+			        	if (nestRequired) { 
+			        		SAsync(
+			        			SAsyncBlock(this.processAsyncBlocks(
+				        			depth+1, 
+				        			[{ expr:EMeta(meta, expr), pos: stmt.pos }], 
+				        			opt,
+				        			new StringSet(),
+				        			ctx.includeVars
+				        		), stmt.pos)
+				        	, opt);
+			        	}
+			        	else {
+			        		SAsync(this.extractAsyncStatementInternal(ctx, depth, expr), opt);
+			        	}
 		        default: 
 		        	SSync(stmt);
 		        }
 		    ;			
 		}
 
-
-
 		return 
 		    switch (stmt.expr) {
 	        case EMeta(meta, expr): 
-	            extractInternal(meta, expr, ctx.includeVars);
+	            extractInternal(meta, expr, OptNone, ctx.hasChains);
 	        
 	        case EVars([{ expr: { expr: EMeta(meta, expr), pos:_ }, name: n, type:_ }]):
-	            extractInternal(meta, expr, ctx.includeVarName(n));
+	        	ctx.includeVarName(n);
+	            extractInternal(meta, expr, OptVars([n]), ctx.hasChains);
 
 	        case EReturn({ expr: EMeta(meta, expr), pos:_ }):
-	            extractInternal(meta, expr, OptReturn);
+	            extractInternal(meta, expr, OptReturn, false);
 
 	        default:    
 	        	SSync(stmt);
@@ -103,14 +117,14 @@ class DeferredAstVisitor {
 		;
 	}
 
-	private function extractAsyncStatementInternal(depth: Int, expr: Expr) {
+	private function extractAsyncStatementInternal(ctx: DeferredAstContext, depth: Int, expr: Expr) {
 		return
 			switch (expr.expr) {
 			case EParenthesis(e): 
-				extractAsyncStatementInternal(depth, e);
+				extractAsyncStatementInternal(ctx, depth, e);
 
 			case EBlock(blocks):
-				SAsyncBlock(this.processAsyncBlocks(depth+1, blocks, new StringSet()), expr.pos);
+				SAsyncBlock(this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars), expr.pos);
 
 			case ECall(_, _):
 				SAsyncCall(expr);

@@ -1,12 +1,15 @@
 package jqd.builder;
 
 import haxe.macro.Expr;
+import haxe.ds.Option;
 
 import jqd.builder.Statement;
 import jqd.util.StringSet;
 
+using Lambda;
+
 class DeferredAstContext {
-	private var chains: Array<AsyncBlockChain>;
+	public var chains(default, null): Array<AsyncBlockChain>;
 	private var lastChain: AsyncBlockChain;
 	private var vars: Array<String>;
 
@@ -14,11 +17,11 @@ class DeferredAstContext {
 	public var varExcludes(default, null): StringSet;
 
 
-	public function new(depth: Int = 1, varExcludes: StringSet) {
+	public function new(depth: Int = 1, varExcludes: StringSet, varIncludes: Array<String>) {
 		this.chains = new Array<AsyncBlockChain>();
 		this.depth = depth;
 		this.varExcludes = varExcludes;
-		this.vars = [];
+		this.vars = varIncludes.slice(0);
 	}
 
 	public function nextChain(opt: AsyncOption): AsyncBlockChain {
@@ -26,29 +29,40 @@ class DeferredAstContext {
 	}
 
 	public function pushChain(chain: AsyncBlockChain, expr: AsyncExpr, opt: AsyncOption): AsyncBlockChain {
-		chain.pushAsyncExpr(expr);
-		this.chains.push(chain);
+		this.chains.push(
+			chain.pushAsyncExpr(expr, this.includeVars)
+		);
 
 		return this.nextChain(opt);
 	}
 
-	public function includeVarName(name: String): AsyncOption {
-		if (! this.varExcludes.exists(name)) {
+	public var hasChains(get, never): Bool;
+
+	private function get_hasChains() {
+		return this.chains.length > 0;
+	}
+
+	public function includeVarName(name: String): Void {
+		if ((! this.varExcludes.exists(name)) && (! this.vars.has(name))) {
 			this.vars.push(name);
 		}
-
-		return this.includeVars;
 	}
 
-	public var includeVars(get, null): AsyncOption;
+	public var includeVars(get, null): Array<String>;
 
 	private function get_includeVars() {
-		return this.vars.length > 0 ? OptVars(this.vars.slice(0)) : OptNone;
+		return this.vars.slice(0);
 	}
 
-	public function buildRootBlock(p: Position): Expr {
+	public function buildRootBlock(p: Position, alwaysReturn: Bool): Expr {
+
+		// trace(this.chains);
+		 trace(this.lastChain.pushAsyncExpr(SAsyncBlank, this.includeVars));
+
 		return { 
-			expr: EBlock(this.chains[0].buildRootBlock(this.depth, this.chains.slice(1), this.lastChain)),
+			expr: EBlock(this.chains[0].buildRootBlock(
+				this.depth, alwaysReturn, 
+				this.chains.slice(1), this.lastChain)),
 			pos: p 
 		};
 	}
