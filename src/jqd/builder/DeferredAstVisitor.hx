@@ -48,7 +48,8 @@ class DeferredAstVisitor {
         	var argNames = fun.args.map(function(arg) return arg.name);
 
         	fun.expr = processAsyncBlocks(1, blocks, OptNone, StringSet.from(argNames), []).buildRootBlock(p, false);
-        	trace(new haxe.macro.Printer().printFunction(fun));
+        	
+//        	trace(new haxe.macro.Printer().printFunction(fun));
         default: 
         }
 
@@ -71,6 +72,7 @@ class DeferredAstVisitor {
 			}	
 		}
 
+//		trace(ctx);
 		return ctx;
 	}
 
@@ -83,12 +85,13 @@ class DeferredAstVisitor {
 			        		SAsync(
 			        			SAsyncBlock(this.processAsyncBlocks(
 				        			depth+1, 
-				        			[{ expr:EMeta(meta, expr), pos: stmt.pos }], 
+				        			[stmt], 
 				        			opt,
 				        			new StringSet(),
 				        			ctx.includeVars
-				        		), stmt.pos)
-				        	, opt);
+				        		), stmt.pos),
+				        		OptVars(ctx.includeVars)
+				        	);
 			        	}
 			        	else {
 			        		SAsync(this.extractAsyncStatementInternal(ctx, depth, expr), opt);

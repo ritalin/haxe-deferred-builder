@@ -12,6 +12,7 @@ class DeferredAstContext {
 	public var chains(default, null): Array<AsyncBlockChain>;
 	private var lastChain: AsyncBlockChain;
 	private var vars: Array<String>;
+	private var frozen: Bool = false;
 
 	public var depth(default, null): Int;
 	public var varExcludes(default, null): StringSet;
@@ -54,10 +55,17 @@ class DeferredAstContext {
 		return this.vars.slice(0);
 	}
 
-	public function buildRootBlock(p: Position, alwaysReturn: Bool): Expr {
+	public function freeze(): DeferredAstContext {
+		if (! this.frozen) {	
+			this.lastChain.pushAsyncExpr(SAsyncBlank, this.includeVars);
+			this.frozen = true;
+		}
 
-		// trace(this.chains);
-		 trace(this.lastChain.pushAsyncExpr(SAsyncBlank, this.includeVars));
+		return this;
+	}
+
+	public function buildRootBlock(p: Position, alwaysReturn: Bool): Expr {
+		this.freeze();
 
 		return { 
 			expr: EBlock(this.chains[0].buildRootBlock(
@@ -68,6 +76,8 @@ class DeferredAstContext {
 	}
 
 	public function buildSubBlock(dfdName: String, p: Position): Expr {
+		this.freeze();
+
 		var result = this.chains[0].buildSubBlock(this.depth, dfdName, this.chains.slice(1), this.lastChain);
 		return {
 			expr: EBlock(result.syncBlocks.concat(result.asyncExpr != null ? [result.asyncExpr] : [])),
