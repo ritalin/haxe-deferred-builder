@@ -58,8 +58,8 @@ class AsyncBlockChain {
 			[lastChain.wrapResolve(depth, dfdName, alwaysReturn, r)];
 		}		
 
-		return new Array<Expr>()
-			.concat([ macro var $dfdName = $inst ])
+		return 
+			[ macro var $dfdName = $inst ]
 			.concat(r.syncBlocks)
 			.concat(exprs)
 			.concat(r.resolved ? [] : [ macro return $i{dfdName} ])
@@ -74,6 +74,25 @@ class AsyncBlockChain {
 		}
 
 		return r;
+	}
+
+	public function buildLoopBlock(depth: Int, arrName: String, alwaysReturn: Bool, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain): ExprDef {
+		var dfdName = '_d${depth}';
+		var inst = DeferredFactory.newInstExpr();
+		
+		var r = this.buildSubBlock(depth, dfdName, chains, lastChain);
+
+		return EBlock(
+			[ macro var $dfdName = $inst ]
+			.concat(r.syncBlocks)
+			.concat(r.asyncExpr != null ? [r.asyncExpr] : [])
+			.concat(
+				switch (this.asyncOption) {
+				case OptReturn: [];
+				default: [ macro $i{arrName}.push($i{dfdName}) ];
+				}
+			)
+		);	
 	}
 
 	public function buildSubBlockInternal(depth: Int, dfdName: String, chains: Array<AsyncBlockChain>): BuildResult {
@@ -125,6 +144,19 @@ class AsyncBlockChain {
 						resolved: false 
 					};
 
+				case Some(SAsyncFor(it, ctx, p)):
+					var arrName = "_da";
+
+					{ 
+						asyncExpr: macro (untyped JQuery).when.apply($i{arrName}, $i{arrName}), 
+						syncBlocks: 
+							[ macro var $arrName = new Array<Deferred>() ]
+							.concat([{ 
+								expr: EFor(it, ctx.buildLoopBlock(arrName, p, true)), pos: p 
+							}]), 
+						resolved: false 
+					};
+
 				default:
 					{ asyncExpr: null, syncBlocks: this.syncBlocks, resolved: false };
 				}	
@@ -142,6 +174,8 @@ class AsyncBlockChain {
 						result.asyncExpr,
 						this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), ctx.buildRootBlock(p, true))
 					);
+
+
 
 				default:
 					result.asyncExpr = this.buildAsyncCall(

@@ -49,7 +49,7 @@ class DeferredAstVisitor {
 
         	fun.expr = processAsyncBlocks(1, blocks, OptNone, StringSet.from(argNames), []).buildRootBlock(p, false);
         	
-//        	trace(new haxe.macro.Printer().printFunction(fun));
+       	// trace(new haxe.macro.Printer().printFunction(fun));
         default: 
         }
 
@@ -128,6 +128,9 @@ class DeferredAstVisitor {
 
 			case EBlock(blocks):
 				SAsyncBlock(this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars), expr.pos);
+
+			case EFor(it, { expr: EBlock(blocks), pos: p }):
+				SAsyncFor(it, this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars), p);
 
 			case ECall(_, _):
 				SAsyncCall(expr);
