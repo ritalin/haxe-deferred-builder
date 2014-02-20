@@ -10,7 +10,7 @@ using Lambda;
 
 class DeferredAstContext {
 	public var chains(default, null): Array<AsyncBlockChain>;
-	private var lastChain: AsyncBlockChain;
+	public var lastChain(default, null): AsyncBlockChain;
 	private var vars: Array<String>;
 	private var frozen: Bool = false;
 
@@ -66,7 +66,8 @@ class DeferredAstContext {
 
 	public function buildRootBlock(p: Position, alwaysReturn: Bool): Expr {
 		this.freeze();
-
+		
+		// trace(this);
 		return { 
 			expr: EBlock(this.chains[0].buildRootBlock(
 				this.depth, alwaysReturn, 
@@ -83,5 +84,14 @@ class DeferredAstContext {
 			expr: EBlock(result.syncBlocks.concat(result.asyncExpr != null ? [result.asyncExpr] : [])),
 			pos: p
 		};
+	}
+
+	public function buildLoopBlock(arrName: String, p: Position, alwaysReturn: Bool): Expr {
+		this.freeze();
+
+		return { 
+			expr: this.chains[0].buildLoopBlock(this.depth, arrName, alwaysReturn, this.chains.slice(1), this.lastChain),
+			pos: p 
+		};		
 	}
 }

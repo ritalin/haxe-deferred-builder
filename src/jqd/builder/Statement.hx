@@ -13,6 +13,7 @@ enum AsyncExpr {
 	SAsyncExpr(expr: Expr);
 	SAsyncCall(expr: Expr);
 	SAsyncBlock(ctx: DeferredAstContext, pos: Position);
+	SAsyncFor(it: Expr, ctx: DeferredAstContext, pos: Position);
 }
 
 enum StatementContent {
