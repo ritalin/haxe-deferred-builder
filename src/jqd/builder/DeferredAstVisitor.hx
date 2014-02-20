@@ -77,12 +77,12 @@ class DeferredAstVisitor {
 	}
 
 	private function edxtractAsyncStatement(ctx: DeferredAstContext, depth: Int, stmt: Expr): StatementContent {
-		var extractInternal = function(meta: MetadataEntry, expr, opt, nestRequired) {
+		var extractInternal = function(meta: MetadataEntry, expr, opt, includeVars, nestRequired) {
 	        return
 		        switch (meta) {
 		        case { name:":yield", params:_, pos:_ }: 
 			        	if (nestRequired) { 
-			        		SAsync(
+ 			        		SAsync(
 			        			SAsyncBlock(this.processAsyncBlocks(
 				        			depth+1, 
 				        			[stmt], 
@@ -90,7 +90,7 @@ class DeferredAstVisitor {
 				        			new StringSet(),
 				        			ctx.includeVars
 				        		), stmt.pos),
-				        		OptVars(ctx.includeVars)
+				        		OptVars(includeVars)
 				        	);
 			        	}
 			        	else {
@@ -105,14 +105,16 @@ class DeferredAstVisitor {
 		return 
 		    switch (stmt.expr) {
 	        case EMeta(meta, expr): 
-	            extractInternal(meta, expr, OptNone, ctx.hasChains);
+	            extractInternal(meta, expr, OptNone, ctx.includeVars, ctx.hasChains);
 	        
 	        case EVars([{ expr: { expr: EMeta(meta, expr), pos:_ }, name: n, type:_ }]):
+	            var result = extractInternal(meta, expr, OptVars([n]), ctx.includeVars.concat([n]), ctx.hasChains);
 	        	ctx.includeVarName(n);
-	            extractInternal(meta, expr, OptVars([n]), ctx.hasChains);
+
+	            result;
 
 	        case EReturn({ expr: EMeta(meta, expr), pos:_ }):
-	            extractInternal(meta, expr, OptReturn, false);
+	            extractInternal(meta, expr, OptReturn, ctx.includeVars, false);
 
 	        default:    
 	        	SSync(stmt);
@@ -121,6 +123,8 @@ class DeferredAstVisitor {
 	}
 
 	private function extractAsyncStatementInternal(ctx: DeferredAstContext, depth: Int, expr: Expr) {
+
+
 		return
 			switch (expr.expr) {
 			case EParenthesis(e): 

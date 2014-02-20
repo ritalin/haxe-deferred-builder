@@ -66,7 +66,8 @@ class DeferredAstContext {
 
 	public function buildRootBlock(p: Position, alwaysReturn: Bool): Expr {
 		this.freeze();
-
+		
+		// trace(this);
 		return { 
 			expr: EBlock(this.chains[0].buildRootBlock(
 				this.depth, alwaysReturn, 

@@ -30,6 +30,18 @@ class DeferredFactory {
 		};
 	}
 
+	public static function parallelClass(): Expr {
+		return macro (untyped jQuery.JQueryStatic);
+	}
+
+	public static function newParallelHolder(): Expr {
+		return macro new Array<Deferred>();
+	}
+
+	public static function getParallelResults(): Expr {
+		return macro untyped [].slice.apply(__js__("arguments"));
+	}
+
 	// public static function returnPromiseType(): ComplexType {
 	// 	return TPath({ 
 	// 		name: promiseClass.name, 

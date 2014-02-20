@@ -145,17 +145,7 @@ class AsyncBlockChain {
 					};
 
 				case Some(SAsyncFor(it, ctx, p)):
-					var arrName = "_da";
-
-					{ 
-						asyncExpr: macro (untyped JQuery).when.apply($i{arrName}, $i{arrName}), 
-						syncBlocks: 
-							[ macro var $arrName = new Array<Deferred>() ]
-							.concat([{ 
-								expr: EFor(it, ctx.buildLoopBlock(arrName, p, true)), pos: p 
-							}]), 
-						resolved: false 
-					};
+					this.buildParallelForLoop(depth, ctx, it, p);
 
 				default:
 					{ asyncExpr: null, syncBlocks: this.syncBlocks, resolved: false };
@@ -163,11 +153,21 @@ class AsyncBlockChain {
 			}
 			else {
 				switch(this.asyncExpr) {
-				case Some(SAsyncCall(expr)) | Some(SAsyncExpr(expr)):
+				case Some(SAsyncCall(expr)):
 					result.asyncExpr = this.buildAsyncCall(
 						result.asyncExpr,
 						this.buildClosure(depth, expr)
 					);
+
+				case Some(SAsyncExpr(expr)):
+					var asyncExpr = macro $i{dfdName}.resolve(${expr});
+					result.asyncExpr = this.buildAsyncCall(
+						result.asyncExpr,
+						this.buildClosure(depth, asyncExpr)
+					);
+					result.resolved = true;
+
+					result;
 
 				case Some(SAsyncBlock(ctx, p)):
 					result.asyncExpr = this.buildAsyncCall(
@@ -175,7 +175,14 @@ class AsyncBlockChain {
 						this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), ctx.buildRootBlock(p, true))
 					);
 
+				case Some(SAsyncFor(it, ctx, p)):
+					var r = this.buildParallelForLoop(depth, ctx, it, p);
+					var blocks = r.syncBlocks.concat(r.asyncExpr != null ? [r.asyncExpr] : []);
 
+					result.asyncExpr = this.buildAsyncCall(
+						result.asyncExpr,
+						this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), { expr: EBlock(blocks), pos: Context.currentPos() })
+					);
 
 				default:
 					result.asyncExpr = this.buildAsyncCall(
@@ -188,6 +195,35 @@ class AsyncBlockChain {
 				result;
 			}
 		;
+	}
+
+	public function buildParallelForLoop(depth: Int, ctx: DeferredAstContext, iterate: Expr, pos: Position): BuildResult {
+		var arrName = "_da";
+		var clz = DeferredFactory.parallelClass();
+		var holder = DeferredFactory.newParallelHolder();
+
+		var parallelResult = new DeferredAstContext(depth+1, new jqd.util.StringSet(), []);
+		parallelResult.pushChain(
+			parallelResult.nextChain(OptNone), 
+			SAsyncExpr(DeferredFactory.getParallelResults()), 
+			OptReturn
+		);
+
+		var caller = macro $clz.when.apply($clz, $i{arrName});
+		var asyncExpr = this.buildAsyncCall(
+			caller,
+			this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), parallelResult.buildRootBlock(pos, true))
+		);
+
+		return { 
+			asyncExpr: asyncExpr, 
+			syncBlocks: 
+				[ macro var $arrName = $holder ]
+				.concat([{ 
+					expr: EFor(iterate, ctx.buildLoopBlock(arrName, pos, true)), pos: pos
+				}]), 
+			resolved: false 
+		};
 	}
 
 	public function buildAsyncCall(receiver: Expr, arg: Expr): Expr {
