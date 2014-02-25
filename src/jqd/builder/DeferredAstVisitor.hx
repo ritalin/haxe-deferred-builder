@@ -134,7 +134,16 @@ class DeferredAstVisitor {
 				SAsyncBlock(this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars), expr.pos);
 
 			case EFor(it, { expr: EBlock(blocks), pos: p }):
-				SAsyncFor(it, this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars), p);
+				SAsyncLoop(
+					function(e) return { expr: EFor(it, e), pos: p }, 
+					this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars)
+				);
+
+			case EWhile(cond, { expr: EBlock(blocks), pos: p }, normalWhile):
+				SAsyncLoop(
+					function(e) return { expr: EWhile(cond, e, normalWhile), pos: p }, 
+					this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars)
+				);
 
 			case ECall(_, _):
 				SAsyncCall(expr);
