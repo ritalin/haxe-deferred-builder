@@ -144,8 +144,8 @@ class AsyncBlockChain {
 						resolved: false 
 					};
 
-				case Some(SAsyncFor(it, ctx, p)):
-					this.buildParallelForLoop(depth, ctx, it, p);
+				case Some(SAsyncLoop(factory, ctx)):
+					this.buildParallelLoop(depth, ctx, factory);
 
 				default:
 					{ asyncExpr: null, syncBlocks: this.syncBlocks, resolved: false };
@@ -175,8 +175,8 @@ class AsyncBlockChain {
 						this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), ctx.buildRootBlock(p, true))
 					);
 
-				case Some(SAsyncFor(it, ctx, p)):
-					var r = this.buildParallelForLoop(depth, ctx, it, p);
+				case Some(SAsyncLoop(factory, ctx)):
+					var r = this.buildParallelLoop(depth, ctx, factory);
 					var blocks = r.syncBlocks.concat(r.asyncExpr != null ? [r.asyncExpr] : []);
 
 					result.asyncExpr = this.buildAsyncCall(
@@ -197,7 +197,8 @@ class AsyncBlockChain {
 		;
 	}
 
-	public function buildParallelForLoop(depth: Int, ctx: DeferredAstContext, iterate: Expr, pos: Position): BuildResult {
+	public function buildParallelLoop(depth: Int, ctx: DeferredAstContext, factory: Expr->Expr): BuildResult {
+		var pos = Context.currentPos();
 		var arrName = "_da";
 		var clz = DeferredFactory.parallelClass();
 		var holder = DeferredFactory.newParallelHolder();
@@ -219,9 +220,10 @@ class AsyncBlockChain {
 			asyncExpr: asyncExpr, 
 			syncBlocks: 
 				[ macro var $arrName = $holder ]
-				.concat([{ 
-					expr: EFor(iterate, ctx.buildLoopBlock(arrName, pos, true)), pos: pos
-				}]), 
+				.concat(syncBlocks)
+				.concat([
+					factory(ctx.buildLoopBlock(arrName, pos, true))
+				]), 
 			resolved: false 
 		};
 	}
