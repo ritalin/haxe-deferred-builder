@@ -88,7 +88,7 @@ class AsyncBlockChain {
 			.concat(r.asyncExpr != null ? [r.asyncExpr] : [])
 			.concat(
 				switch (this.asyncOption) {
-				case OptReturn: [];
+				case OptReturn: [ macro return $i{dfdName} ];
 				default: [ macro $i{arrName}.push($i{dfdName}) ];
 				}
 			)
