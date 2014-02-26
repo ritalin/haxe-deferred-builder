@@ -79,7 +79,7 @@ class DeferredAstContext {
 	public function buildSubBlock(dfdName: String, p: Position): Expr {
 		this.freeze();
 
-		var result = this.chains[0].buildSubBlock(this.depth, dfdName, this.chains.slice(1), this.lastChain);
+		var result = this.chains[0].buildSubBlock(this.depth, dfdName, this.chains.slice(1), this.lastChain, false);
 		return {
 			expr: EBlock(result.syncBlocks.concat(result.asyncExpr != null ? [result.asyncExpr] : [])),
 			pos: p
