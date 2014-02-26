@@ -8,16 +8,20 @@ import haxe.macro.Printer;
 
 import jqd.builder.Statement;
 
+using Lambda;
+
 typedef BuildResult = {
 	var syncBlocks: Array<Expr>;
 	var asyncExpr: Expr;
 	var resolved: Bool;
+	var deadBlocks: Array<Expr>;
 }
 
 private typedef ResolveIdentifier = {
 	var argNames: Array<String>;
 	var resolveVars: Array<String>;
 }
+
 
 class AsyncBlockChain {
 	private var syncBlocks: Array<Expr>;
@@ -55,7 +59,7 @@ class AsyncBlockChain {
 			[];
 		}
 		else {
-			[lastChain.wrapResolve(depth, dfdName, alwaysReturn, r)];
+			[lastChain.wrapResolve(depth, dfdName, alwaysReturn, r).asyncExpr];
 		}		
 
 		return 
@@ -66,26 +70,31 @@ class AsyncBlockChain {
 		;
 	}
 
-	public function buildSubBlock(depth: Int, dfdName: String, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain): BuildResult {
+	public function buildSubBlock(depth: Int, dfdName: String, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain, acceptDeadBlocks: Bool): BuildResult {
 		var r = buildSubBlockInternal(depth, dfdName, chains);
 
-		if (r.asyncExpr != null) {
-			r.asyncExpr = lastChain.wrapResolve(depth, dfdName, true, r);
+		if (r.asyncExpr == null) return r;
+
+		var resolveResult = lastChain.wrapResolve(depth, dfdName, true, r);
+
+		if (! acceptDeadBlocks && ! resolveResult.deadBlocks.empty()) {
+			Context.warning("Dead blocks Found.", resolveResult.deadBlocks[0].pos);
 		}
 
-		return r;
+		return resolveResult;
 	}
 
 	public function buildLoopBlock(depth: Int, arrName: String, alwaysReturn: Bool, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain): ExprDef {
 		var dfdName = '_d${depth}';
 		var inst = DeferredFactory.newInstExpr();
 		
-		var r = this.buildSubBlock(depth, dfdName, chains, lastChain);
+		var r = this.buildSubBlock(depth, dfdName, chains, lastChain, true);
 
 		return EBlock(
 			[ macro var $dfdName = $inst ]
 			.concat(r.syncBlocks)
 			.concat(r.asyncExpr != null ? [r.asyncExpr] : [])
+			.concat(r.deadBlocks)
 			.concat(
 				switch (this.asyncOption) {
 				case OptReturn: [ macro return $i{dfdName} ];
@@ -105,13 +114,18 @@ class AsyncBlockChain {
 		return r;
 	}
 
-	private function wrapResolve(depth: Int, dfdName: String, alwaysReturn: Bool, result: BuildResult): Expr {
+	private function wrapResolve(depth: Int, dfdName: String, alwaysReturn: Bool, result: BuildResult): BuildResult {
 		return
 			if (result.resolved) {
-				result.asyncExpr;
+				result;
 			}
 			else {
-				this.buildAsyncCall(result.asyncExpr, this.buildResolveClosure(depth, dfdName, alwaysReturn));
+				{ 
+					asyncExpr: this.buildAsyncCall(result.asyncExpr, this.buildResolveClosure(depth, dfdName, alwaysReturn)), 
+					syncBlocks: result.syncBlocks, 
+					resolved: false, 
+					deadBlocks: this.syncBlocks 
+				};
 			}
 		;
 	}
@@ -121,12 +135,12 @@ class AsyncBlockChain {
 			if (result == null) {
 				switch(this.asyncExpr) {
 				case Some(SAsyncCall(expr)):
-					{ asyncExpr: expr, syncBlocks: this.syncBlocks, resolved: false };
+					{ asyncExpr: expr, syncBlocks: this.syncBlocks, resolved: false, deadBlocks: [] };
 
 				case Some(SAsyncExpr(expr)):
 					{ 
 						asyncExpr: macro return $i{dfdName}.resolve(${expr}), 
-						syncBlocks: this.syncBlocks, resolved: true 
+						syncBlocks: this.syncBlocks, resolved: true, deadBlocks: []
 					};			
 
 				case Some(SAsyncBlock(ctx, p)):
@@ -141,14 +155,15 @@ class AsyncBlockChain {
 					{ 
 						asyncExpr: macro $i{subDfdName}, 
 						syncBlocks: blocks, 
-						resolved: false 
+						resolved: false, 
+						deadBlocks: []
 					};
 
 				case Some(SAsyncLoop(factory, ctx)):
 					this.buildParallelLoop(depth, ctx, factory);
 
 				default:
-					{ asyncExpr: null, syncBlocks: this.syncBlocks, resolved: false };
+					{ asyncExpr: null, syncBlocks: this.syncBlocks, resolved: false, deadBlocks: [] };
 				}	
 			}
 			else {
@@ -224,7 +239,8 @@ class AsyncBlockChain {
 				.concat([
 					factory(ctx.buildLoopBlock(arrName, pos, true))
 				]), 
-			resolved: false 
+			resolved: false,
+			deadBlocks: []
 		};
 	}
 
@@ -282,7 +298,7 @@ class AsyncBlockChain {
         	resolveId.argNames,
             {
                 pos: Context.currentPos(),
-                expr: EBlock(this.syncBlocks.concat([ closureExpr ]))
+                expr: EBlock([ closureExpr ])
             }        
         );
 	}
