@@ -6,16 +6,10 @@ import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Printer;
 
+import jqd.util.ImmutableEnumFlags;
 import jqd.builder.Statement;
 
 using Lambda;
-
-typedef BuildResult = {
-	var syncBlocks: Array<Expr>;
-	var asyncExpr: Expr;
-	var resolved: Bool;
-	var deadBlocks: Array<Expr>;
-}
 
 private typedef ResolveIdentifier = {
 	var argNames: Array<String>;
@@ -48,26 +42,24 @@ class AsyncBlockChain {
 		return this;
 	}
 
-	public function buildRootBlock(depth: Int, alwaysReturn: Bool, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain): Array<Expr> {
+	public function buildRootBlock(depth: Int, alwaysReturn: Bool, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain): BuildResult {
 		var dfdName = '_d${depth}';
 		var inst = DeferredFactory.newInstExpr();
 
-		var r = this.buildSubBlockInternal(depth, dfdName, chains);
+		var r = this.buildSubBlock(depth, dfdName, chains, lastChain, false);
 
 		// When pass follow expression Array.cocat directly, this.resolved has always false, why?
-		var exprs = if (r.asyncExpr == null) { 
-			[];
-		}
-		else {
-			[lastChain.wrapResolve(depth, dfdName, alwaysReturn, r).asyncExpr];
-		}		
+		var exprs = r.asyncExpr != null ? [r.asyncExpr] : []; 		
 
-		return 
-			[ macro var $dfdName = $inst ]
-			.concat(r.syncBlocks)
-			.concat(exprs)
-			.concat(r.resolved ? [] : [ macro return $i{dfdName} ])
-		;
+		return {
+			asyncExpr: null,
+			syncBlocks: [ macro var $dfdName = $inst ]
+				.concat(r.syncBlocks)
+				.concat(exprs)
+				.concat(r.status.any([SResolveAttached, SRejectAttached]) ? [ macro return $i{dfdName} ] : []),
+			deadBlocks: [],
+			status: r.status
+		};
 	}
 
 	public function buildSubBlock(depth: Int, dfdName: String, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain, acceptDeadBlocks: Bool): BuildResult {
@@ -75,13 +67,14 @@ class AsyncBlockChain {
 
 		if (r.asyncExpr == null) return r;
 
-		var resolveResult = lastChain.wrapResolve(depth, dfdName, true, r);
+		var withResolved = lastChain.wrapResolve(depth, dfdName, true, r);
+		var withRejected = this.wrapReject(depth, dfdName, withResolved);
 
-		if (! acceptDeadBlocks && ! resolveResult.deadBlocks.empty()) {
-			Context.warning("Dead blocks Found.", resolveResult.deadBlocks[0].pos);
+		if (! acceptDeadBlocks && ! withResolved.deadBlocks.empty()) {
+			Context.warning("Dead blocks Found.", withRejected.deadBlocks[0].pos);
 		}
 
-		return resolveResult;
+		return withRejected;
 	}
 
 	public function buildLoopBlock(depth: Int, arrName: String, alwaysReturn: Bool, chains: Array<AsyncBlockChain>, lastChain: AsyncBlockChain): ExprDef {
@@ -116,18 +109,35 @@ class AsyncBlockChain {
 
 	private function wrapResolve(depth: Int, dfdName: String, alwaysReturn: Bool, result: BuildResult): BuildResult {
 		return
-			if (result.resolved) {
+			if (result.status.any([SResolveIgnored])) {
+				result.status = result.status.exclude([SResolveIgnored]);
 				result;
 			}
 			else {
 				{ 
 					asyncExpr: this.buildAsyncCall(result.asyncExpr, this.buildResolveClosure(depth, dfdName, alwaysReturn)), 
 					syncBlocks: result.syncBlocks, 
-					resolved: false, 
-					deadBlocks: this.syncBlocks 
+					deadBlocks: this.syncBlocks,
+					status: result.status.include([SResolveAttached]),
 				};
 			}
 		;
+	}
+
+	private function wrapReject(depth: Int, dfdName: String, result: BuildResult): BuildResult {
+		return 
+			if (result.status.any([SRejectIgnored])) {
+				result.status = result.status.exclude([SRejectIgnored]);
+				result;
+			}
+			else {
+				{
+					asyncExpr: buildAsyncCallInternal("fail", result.asyncExpr, this.buildRejectClosure(depth, dfdName, ['_tmp${depth}'])), 
+					syncBlocks: result.syncBlocks, 
+					deadBlocks: result.deadBlocks,
+					status: result.status.include([SRejectAttached]),
+				};
+			}
 	}
 
 	private function foldAsyncExpr(result: BuildResult, depth: Int, dfdName: String): BuildResult {
@@ -135,12 +145,13 @@ class AsyncBlockChain {
 			if (result == null) {
 				switch(this.asyncExpr) {
 				case Some(SAsyncCall(expr)):
-					{ asyncExpr: expr, syncBlocks: this.syncBlocks, resolved: false, deadBlocks: [] };
+					{ asyncExpr: expr, syncBlocks: this.syncBlocks, deadBlocks: [], status: ImmutableEnumFlags.of([]) };
 
 				case Some(SAsyncExpr(expr)):
 					{ 
 						asyncExpr: macro return $i{dfdName}.resolve(${expr}), 
-						syncBlocks: this.syncBlocks, resolved: true, deadBlocks: []
+						syncBlocks: this.syncBlocks, deadBlocks: [], 
+						status: ImmutableEnumFlags.of([SResolveIgnored, SRejectIgnored]),
 					};			
 
 				case Some(SAsyncBlock(ctx, p)):
@@ -155,15 +166,22 @@ class AsyncBlockChain {
 					{ 
 						asyncExpr: macro $i{subDfdName}, 
 						syncBlocks: blocks, 
-						resolved: false, 
-						deadBlocks: []
+						deadBlocks: [],
+						status: ImmutableEnumFlags.of([]), // TODO: May be need to consider sub-block status
 					};
 
 				case Some(SAsyncLoop(factory, ctx)):
 					this.buildParallelLoop(depth, ctx, factory);
 
+				case Some(SAsyncReject(expr)):
+					{ 
+						asyncExpr: macro return $i{dfdName}.reject(${expr}), 
+						syncBlocks: this.syncBlocks, deadBlocks: [],
+						status: ImmutableEnumFlags.of([SResolveIgnored, SRejectIgnored]), 
+					};	
+
 				default:
-					{ asyncExpr: null, syncBlocks: this.syncBlocks, resolved: false, deadBlocks: [] };
+					{ asyncExpr: null, syncBlocks: this.syncBlocks, deadBlocks: [], status: ImmutableEnumFlags.of([]) };
 				}	
 			}
 			else {
@@ -180,15 +198,15 @@ class AsyncBlockChain {
 						result.asyncExpr,
 						this.buildClosure(depth, asyncExpr)
 					);
-					result.resolved = true;
-
-					result;
+					result.status = result.status.set(SResolveIgnored);
 
 				case Some(SAsyncBlock(ctx, p)):
+					var r = ctx.buildRootBlock(p, true);
 					result.asyncExpr = this.buildAsyncCall(
 						result.asyncExpr,
-						this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), ctx.buildRootBlock(p, true))
+						this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), r.syncBlocks)
 					);
+					result.status = result.status.or(r.status);
 
 				case Some(SAsyncLoop(factory, ctx)):
 					var r = this.buildParallelLoop(depth, ctx, factory);
@@ -196,15 +214,15 @@ class AsyncBlockChain {
 
 					result.asyncExpr = this.buildAsyncCall(
 						result.asyncExpr,
-						this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), { expr: EBlock(blocks), pos: Context.currentPos() })
+						this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), blocks)
 					);
-
+					result.status = result.status.or(r.status);
 				default:
 					result.asyncExpr = this.buildAsyncCall(
 						result.asyncExpr,
 						this.buildClosure(depth, macro $i{dfdName}.reject())
 					);
-					result.resolved = true;
+					result.status = result.status;
 				}
 
 				result;
@@ -226,9 +244,11 @@ class AsyncBlockChain {
 		);
 
 		var caller = macro $clz.when.apply($clz, $i{arrName});
+		var loopBlocks = parallelResult.buildRootBlock(pos, true);
+
 		var asyncExpr = this.buildAsyncCall(
 			caller,
-			this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), parallelResult.buildRootBlock(pos, true))
+			this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), loopBlocks.syncBlocks)
 		);
 
 		return { 
@@ -239,16 +259,20 @@ class AsyncBlockChain {
 				.concat([
 					factory(ctx.buildLoopBlock(arrName, pos, true))
 				]), 
-			resolved: false,
-			deadBlocks: []
+			deadBlocks: [],
+			status: loopBlocks.status,
 		};
 	}
 
 	public function buildAsyncCall(receiver: Expr, arg: Expr): Expr {
+		return buildAsyncCallInternal("then", receiver, arg);
+	}
+
+	private function buildAsyncCallInternal(methodName: String, receiver: Expr, arg: Expr): Expr {
         return {
             pos: receiver.pos,
             expr: ECall(
-                { expr: EField(receiver, "then"), pos: Context.currentPos() }, 
+                { expr: EField(receiver, methodName), pos: Context.currentPos() }, 
                 [arg]
             )
         };
@@ -265,12 +289,9 @@ class AsyncBlockChain {
 	}
 
 	private function buildClosure(depth: Int, caller) {
+		var closureExpr = this.syncBlocks.concat(caller != null ? [ macro return $caller ] : []);
 		return buildClosureInternal(
-        	extractClodureArgNames(depth, this.asyncOption),
-            {
-                pos: Context.currentPos(),
-                expr: EBlock(this.syncBlocks.concat(caller != null ? [ macro return $caller ] : []))
-            }
+        	extractClodureArgNames(depth, this.asyncOption), closureExpr
         );		
 	}
 
@@ -295,15 +316,23 @@ class AsyncBlockChain {
 		var closureExpr = macro return $i{dfdName}.resolveWith($i{dfdName}, [$a{returns}]);
 
         return buildClosureInternal(
-        	resolveId.argNames,
-            {
-                pos: Context.currentPos(),
-                expr: EBlock([ closureExpr ])
-            }        
+        	resolveId.argNames, [ closureExpr ]      
         );
 	}
 
-    private function buildClosureInternal(argNames: Array<String>, blocksExpr: Expr): Expr {
+	private function buildRejectClosure(depth: Int, dfdName: String, argNames: Array<String>): Expr {
+		var returns = argNames.map(function(arg) {
+			return macro $i{arg};
+		});
+
+		var closureExpr = macro return $i{dfdName}.rejectWith($i{dfdName}, [$a{returns}]);
+
+        return buildClosureInternal(
+        	argNames, [ closureExpr ]      
+        );
+	}
+
+    private function buildClosureInternal(argNames: Array<String>, blocksExpr: Array<Expr>): Expr {
         var args = argNames.map(function(name) {
 			return { 
 	            name: name, 
@@ -317,7 +346,7 @@ class AsyncBlockChain {
                 args: args, 
                 params: [], 
                 ret: null,
-                expr: blocksExpr
+                expr: { expr: EBlock(blocksExpr), pos: Context.currentPos() }  
             }),
             pos: Context.currentPos()
         };

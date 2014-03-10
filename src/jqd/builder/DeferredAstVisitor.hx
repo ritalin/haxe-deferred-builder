@@ -46,8 +46,11 @@ class DeferredAstVisitor {
         switch (fun.expr) {
         case { expr: EBlock(blocks), pos: p }: 
         	var argNames = fun.args.map(function(arg) return arg.name);
-
-        	fun.expr = processAsyncBlocks(1, blocks, OptNone, StringSet.from(argNames), []).buildRootBlock(p, false);
+        // trace(fun);
+        	fun.expr = {
+        		expr: EBlock(processAsyncBlocks(1, blocks, OptNone, StringSet.from(argNames), []).buildRootBlock(p, false).syncBlocks),
+        		pos: p
+        	};
         	
        	// trace(new haxe.macro.Printer().printFunction(fun));
         default: 
@@ -144,6 +147,9 @@ class DeferredAstVisitor {
 					function(e) return { expr: EWhile(cond, e, normalWhile), pos: p }, 
 					this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars)
 				);
+
+			case EThrow(exception):
+				SAsyncReject(exception);
 
 			case ECall(_, _):
 				SAsyncCall(expr);

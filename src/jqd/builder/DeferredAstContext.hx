@@ -64,16 +64,13 @@ class DeferredAstContext {
 		return this;
 	}
 
-	public function buildRootBlock(p: Position, alwaysReturn: Bool): Expr {
+	public function buildRootBlock(p: Position, alwaysReturn: Bool): BuildResult {
 		this.freeze();
 		
-		// trace(this);
-		return { 
-			expr: EBlock(this.chains[0].buildRootBlock(
-				this.depth, alwaysReturn, 
-				this.chains.slice(1), this.lastChain)),
-			pos: p 
-		};
+		return this.chains[0].buildRootBlock(
+			this.depth, alwaysReturn, 
+			this.chains.slice(1), this.lastChain
+		);
 	}
 
 	public function buildSubBlock(dfdName: String, p: Position): Expr {
