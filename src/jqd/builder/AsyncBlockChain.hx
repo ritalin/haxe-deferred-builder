@@ -180,6 +180,34 @@ class AsyncBlockChain {
 						status: ImmutableEnumFlags.of([SResolveIgnored, SRejectIgnored]), 
 					};	
 
+				case Some(SAsyncCatch(ctx, p, catches)):
+					var subDfdName = '_d${ctx.depth}';
+					var inst = DeferredFactory.newInstExpr();
+
+					var blocks = this.syncBlocks
+						.concat([ macro var $subDfdName = $inst ])
+						.concat([ ctx.buildSubBlock(subDfdName, p) ])
+					;
+					var asyncExpr = macro $i{subDfdName};
+
+					var closureArgNmae = "ex";
+					var closure =
+						switch (this.captureDynamicException(catches)) {
+						case { xs: xs, last: Some(last) }:
+							this.buildCatchClosure(ctx.depth+1, dfdName, closureArgNmae, xs, last);
+						default: 
+							this.buildCatchClosure(
+								ctx.depth+1, dfdName, closureArgNmae, catches, null 
+							);
+						}
+					;
+					var body = buildAsyncCallInternal("fail", asyncExpr, closure);
+					{
+						asyncExpr: macro $body, 
+						syncBlocks: blocks, deadBlocks: [],
+						status: ImmutableEnumFlags.of([SRejectIgnored]), 
+					}
+
 				default:
 					{ asyncExpr: null, syncBlocks: this.syncBlocks, deadBlocks: [], status: ImmutableEnumFlags.of([]) };
 				}	
@@ -262,6 +290,87 @@ class AsyncBlockChain {
 			deadBlocks: [],
 			status: loopBlocks.status,
 		};
+	}
+
+	public function buildCatchClosure(depth, parentDfd, argName: String, catches: Array<AsyncCatchExpr>, lastCatch: Null<AsyncCatchExpr>): Expr {
+
+
+		var argNames = extractClodureArgNames(depth, this.asyncOption);
+
+		/*
+			疑似コード
+		for (x in argNames.slice(0, 1)) {
+			for (c in catches) {
+				if (c.type instanceof x) {
+					c.expr
+				}
+			}
+		}
+		*/
+
+		var buildCatchClosureInternal = function(c) {
+			return 
+				if (c != null) {
+					var expr = if ((c.argName == argName) || (c.argName == '_')) {
+						[];
+					}
+					else {
+						[{ expr: EVars([ { name: c.argName, type: null, expr: macro $i{argName}, } ]), pos: Context.currentPos() }];
+					};
+
+					{ 
+						expr: EBlock(expr.concat(c.ctx.buildRootBlock(c.pos, false).syncBlocks)), 
+						pos: c.pos 
+					};
+				}
+				else { 
+					macro $i{parentDfd}.reject($i{argName});
+				}
+			;
+		}
+
+		var ifExpr =
+			catches
+			.fold(function(c, r) {
+				return
+					switch (c.type) {
+					case TPath({ name: t, pack:_, params:_ }): 
+						var type = { expr: EConst(CIdent(t)), pos: Context.currentPos() };
+						var cond = macro Std.is($i{argName}, $type);
+						
+						{ expr: EIf(cond, buildCatchClosureInternal(c), r), pos: c.pos };
+					default: r;
+					}
+				;
+			}, buildCatchClosureInternal(lastCatch))
+		;
+
+
+		var dfdName = '_d${depth}';
+		var inst = DeferredFactory.newInstExpr();
+		var body = 
+			[ ifExpr ]
+		;
+
+		return buildClosureInternal(
+        	[argName], body
+        );	
+	}
+
+	public function captureDynamicException(catches: Array<AsyncCatchExpr>): { var xs:Array<AsyncCatchExpr>; var last:Option<AsyncCatchExpr>; } {
+		return 
+			switch (catches.slice(-1)) {
+			case [ last = { ctx:_, type: TPath({ name: "Dynamic", pack:_, params:_ }), pos:_ } ]: 
+				{ 
+					xs: catches.slice(0, -1), last: Some(last) 
+				};
+			default: 
+				{ 
+					xs: catches, last: None 
+				};
+			}
+		;
+
 	}
 
 	public function buildAsyncCall(receiver: Expr, arg: Expr): Expr {

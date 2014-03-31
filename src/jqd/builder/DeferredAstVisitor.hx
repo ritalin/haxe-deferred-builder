@@ -52,7 +52,7 @@ class DeferredAstVisitor {
         		pos: p
         	};
         	
-       	// trace(new haxe.macro.Printer().printFunction(fun));
+       	trace(new haxe.macro.Printer().printFunction(fun));
         default: 
         }
 
@@ -77,6 +77,31 @@ class DeferredAstVisitor {
 
 //		trace(ctx);
 		return ctx;
+	}
+
+	public function processCatchStatement(depth: Int): Catch -> AsyncCatchExpr {
+		return function (c: Catch) {
+			return 
+				switch (c.expr) {
+				case { expr: EBlock(blocks), pos: pos }:
+					{
+						ctx: this.processAsyncBlocks(depth, blocks, OptNone, new StringSet(), []),
+						type: c.type,
+						argName: c.name,
+						pos: pos,
+					};
+
+				case { expr:_, pos:pos }:
+					haxe.macro.Context.error("Unsupported catch statement.", pos);
+					{
+						ctx: null,
+						type: c.type,
+						argName: c.name,
+						pos: pos,
+					};
+				}
+			;
+		}
 	}
 
 	private function edxtractAsyncStatement(ctx: DeferredAstContext, depth: Int, stmt: Expr): StatementContent {
@@ -150,6 +175,12 @@ class DeferredAstVisitor {
 
 			case EThrow(exception):
 				SAsyncReject(exception);
+
+			case ETry({ expr: EBlock(blocks), pos: p}, catches):
+				SAsyncCatch(
+					this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars), p,
+					catches.map(this.processCatchStatement(depth+2))
+				);
 
 			case ECall(_, _):
 				SAsyncCall(expr);

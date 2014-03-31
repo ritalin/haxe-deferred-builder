@@ -16,6 +16,7 @@ enum AsyncExpr {
 	SAsyncBlock(ctx: DeferredAstContext, pos: Position);
 	SAsyncLoop(factory: Expr -> Expr, ctx: DeferredAstContext);
 	SAsyncReject(exception: Expr);
+	SAsyncCatch(ctx: DeferredAstContext, pos: Position, catches: Array<AsyncCatchExpr>);
 }
 
 enum StatementContent {
@@ -28,6 +29,13 @@ enum AsyncStatus {
 	SResolveAttached;
 	SRejectIgnored;
 	SRejectAttached;
+}
+
+typedef AsyncCatchExpr = {
+	var ctx: DeferredAstContext;
+	var type: ComplexType;
+	var argName: String;
+	var pos: Position;
 }
 
 typedef BuildResult = {
