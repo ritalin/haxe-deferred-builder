@@ -132,6 +132,9 @@ class DeferredAstVisitor {
 
 		return 
 		    switch (stmt.expr) {
+	        case EReturn({ expr: EMeta(meta, expr), pos:_ }) | EMeta(meta, { expr: EReturn(expr), pos:_ }):
+	            extractInternal(meta, expr, OptReturn, ctx.includeVars, false);
+
 	        case EMeta(meta, expr): 
 	            extractInternal(meta, expr, OptNone, ctx.includeVars, ctx.hasChains);
 	        
@@ -140,9 +143,6 @@ class DeferredAstVisitor {
 	        	ctx.includeVarName(n);
 
 	            result;
-
-	        case EReturn({ expr: EMeta(meta, expr), pos:_ }):
-	            extractInternal(meta, expr, OptReturn, ctx.includeVars, false);
 
 	        default:    
 	        	SSync(stmt);

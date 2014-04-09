@@ -21,7 +21,7 @@ private class Target {
 			}
 		;
 
-		return @:yield results;
+		@:yield return results;
 	}
 
 	@:async
@@ -34,7 +34,7 @@ private class Target {
 			}
 		;
 
-		return @:yield results;
+		@:yield return results;
 	}
 
 	@:async
@@ -46,7 +46,7 @@ private class Target {
 			}
 		;
 
-		return @:yield results;
+		@:yield return results;
 	}
 
 	@:async
@@ -59,7 +59,7 @@ private class Target {
 			}
 		;
 
-		return @:yield results;
+		@:yield return results;
 	}
 
 	@:async
@@ -73,11 +73,11 @@ private class Target {
 			while (n >= 0)
 		;
 
-		return @:yield results;
+		@:yield return results;
 	}
 
 	@:async
 	private function callAsync(n: Int) {
-		return @:yield (n * 10);
+		@:yield return (n * 10);
 	}
 }

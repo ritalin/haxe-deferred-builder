@@ -26,27 +26,27 @@ private class Target {
 
 	@:async
 	public function run3(): Promise {
-		return @:yield try {
+		@:yield return try {
 			@:yield run2();
 		}
 		// catch (ex: String) {
 		// 	return @:yield ex;
 		// }
 		catch (errCode: Int) {
-			return @:yield '${errCode}';
+			@:yield return '${errCode}';
 		}
 		catch (_: Dynamic) {
-			return @:yield "Unknown Error";
+			@:yield return "Unknown Error";
 		}
 	}
 
 	@:async
 	private function callAsync(n: Int) {
-		return @:yield (n * 10);
+		@:yield return (n * 10);
 	}
 
 	@:async
 	private function callAsync2(n: Int) {
-		return @:yield [n, n*2];
+		@:yield return [n, n*2];
 	}
 }

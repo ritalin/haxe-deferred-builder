@@ -32,7 +32,7 @@ private class Target {
 			@:yield callAsync(1);
 		}
 		var y = x+10;
-		return @:yield callAsync2([1]);
+		@:yield return callAsync2([1]);
 
 		// var _d2 = new Deferred();
 		// {
@@ -71,11 +71,11 @@ private class Target {
 
 	@:async
 	private function callAsync(n: Int) {
-		return @:yield (n * 10);
+		@:yield return (n * 10);
 	}
 
 	@:async
 	private function callAsync2(n: Array<Int>) {
-		return @:yield [n, n];
+		@:yield return [n, n];
 	}
 }
