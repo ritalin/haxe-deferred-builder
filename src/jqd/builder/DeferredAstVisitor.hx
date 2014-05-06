@@ -5,8 +5,10 @@ import haxe.ds.Option;
 
 import jqd.builder.Statement;
 import jqd.util.StringSet;
+import jqd.util.LazyLambda;
 
 using Lambda;
+using jqd.util.LazyLambda;
 
 class DeferredAstVisitor {
 	private static var META_ASYNC: String = ":async";
@@ -32,6 +34,7 @@ class DeferredAstVisitor {
 	    		default: 
 	    		}    	
     		}
+       		trace(new haxe.macro.Printer().printField(field));
 
     		results.push(field);
     	}
@@ -46,13 +49,12 @@ class DeferredAstVisitor {
         switch (fun.expr) {
         case { expr: EBlock(blocks), pos: p }: 
         	var argNames = fun.args.map(function(arg) return arg.name);
-         trace(fun);
+         // trace(fun);
         	fun.expr = {
         		expr: EBlock(processAsyncBlocks(1, blocks, OptNone, StringSet.from(argNames), []).buildRootBlock(p, false).syncBlocks),
         		pos: p
         	};
         	
-       	// trace(new haxe.macro.Printer().printFunction(fun));
         default: 
         }
 
@@ -104,6 +106,33 @@ class DeferredAstVisitor {
 		}
 	}
 
+	public function processIfStatement(ctx: DeferredAstContext, depth: Int, cond: Option<Expr>, eif: Expr, eelse: Option<Expr>): Array<AsyncIfExpr> {
+			var blocks =
+				switch (eif.expr) {
+				case EBlock(blocks): blocks;
+				default: [eif];
+				}
+			;
+
+			var results = [{
+				cond: cond, 
+				block: Some(this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars)) 
+			}];
+
+			return
+				switch (eelse) {
+				case None: 
+					results.concat([{ cond: None, block: None }]);
+
+				case Some({ expr: EIf(condSub, ifSub, elseSub), pos:_ }):
+					results.concat(this.processIfStatement(ctx, depth, Some(condSub), ifSub, elseSub != null ? Some(elseSub) : None));
+
+				case Some(elseBlock):
+					results.concat(this.processIfStatement(ctx, depth, None, elseBlock, None));
+				}
+			;
+	}
+
 	private function edxtractAsyncStatement(ctx: DeferredAstContext, depth: Int, stmt: Expr): StatementContent {
 		var extractInternal = function(meta: MetadataEntry, expr, opt, includeVars, nestRequired) {
 	        return
@@ -151,7 +180,9 @@ class DeferredAstVisitor {
 	}
 
 	private function extractAsyncStatementInternal(ctx: DeferredAstContext, depth: Int, expr: Expr) {
-
+		if (expr == null) {
+			return SAsyncExpr(expr);
+		}
 
 		return
 			switch (expr.expr) {
@@ -180,6 +211,11 @@ class DeferredAstVisitor {
 				SAsyncCatch(
 					this.processAsyncBlocks(depth+1, blocks, OptNone, new StringSet(), ctx.includeVars), p,
 					catches.map(this.processCatchStatement(depth+2))
+				);
+
+			case EIf(cond, eif, elseBlock):
+				SAsyncIf(
+					this.processIfStatement(ctx, depth, Some(cond), eif, elseBlock != null ? Some(elseBlock) : None)
 				);
 
 			case ECall(_, _):

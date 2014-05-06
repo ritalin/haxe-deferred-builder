@@ -148,8 +148,31 @@ class AsyncBlockChain {
 					{ asyncExpr: expr, syncBlocks: this.syncBlocks, deadBlocks: [], status: ImmutableEnumFlags.of([]) };
 
 				case Some(SAsyncExpr(expr)):
+					var asyncExpr =
+						if (depth == 1) {
+							if (expr == null) {
+								macro return $i{dfdName}.resolve();
+							}
+							else {
+								macro return $i{dfdName}.resolve(${expr});
+							}
+						}
+						else {
+							var parentDfd = '_d${depth-1}';
+							var e =
+								if (expr == null) {
+									macro $i{parentDfd}.resolve();
+								}
+								else {
+									macro $i{parentDfd}.resolve(${expr});
+								}	
+							;
+
+							{ expr: EBlock([e, macro $i{dfdName}]), pos: Context.currentPos() };							
+						}
+
 					{ 
-						asyncExpr: macro return $i{dfdName}.resolve(${expr}), 
+						asyncExpr: asyncExpr, 
 						syncBlocks: this.syncBlocks, deadBlocks: [], 
 						status: ImmutableEnumFlags.of([SResolveIgnored, SRejectIgnored]),
 					};			
@@ -208,6 +231,23 @@ class AsyncBlockChain {
 						status: ImmutableEnumFlags.of([SRejectIgnored]), 
 					}
 
+				case Some(SAsyncIf(exprs)):
+					var subDfdName = '_d${depth+1}';
+					var ifVarName = '${subDfdName}if';
+					var ifExpr = this.buildConditionalBlock(subDfdName, exprs);
+
+					var blocks = this.syncBlocks
+						.concat([ macro var $ifVarName = $ifExpr ])
+					;
+
+					{ 
+						asyncExpr: macro $i{ifVarName}, 
+						syncBlocks: blocks, 
+						deadBlocks: [],
+						status: ImmutableEnumFlags.of([]), // TODO: May be need to consider sub-block status
+					};
+
+
 				default:
 					{ asyncExpr: null, syncBlocks: this.syncBlocks, deadBlocks: [], status: ImmutableEnumFlags.of([]) };
 				}	
@@ -245,6 +285,7 @@ class AsyncBlockChain {
 						this.buildClosureInternal(extractClodureArgNames(depth, this.asyncOption), blocks)
 					);
 					result.status = result.status.or(r.status);
+
 				default:
 					result.asyncExpr = this.buildAsyncCall(
 						result.asyncExpr,
@@ -371,6 +412,51 @@ class AsyncBlockChain {
 			}
 		;
 
+	}
+
+	public function buildConditionalBlock(subDfdName: String, exprs: Array<AsyncIfExpr>): Expr {
+		var result = null;
+
+		var i = exprs.length-1;
+		while (i >= 0) {
+			result = 
+				switch (exprs[i]) {
+				case { cond: Some(cond), block: Some(ifBlock) }:
+					switch (ifBlock.lastChain.asyncOption) {
+					case OptReturn:
+						trace(">>>>> Hit yield return");
+					default:
+						trace(">>>>> No-hit...");
+					}
+
+					{ 
+						expr: EIf(cond, ifBlock.buildSubBlock(subDfdName, Context.currentPos()), result),
+						pos: Context.currentPos()
+					};
+
+				case { cond: None, block: Some(elseBlock)}:
+					elseBlock.buildSubBlock(subDfdName, Context.currentPos());
+
+				case { cond: None, block: None }:
+					macro $i{subDfdName}.resolve();
+
+				case { cond: Some(_), block: None }:
+					Context.error("Illegal state.", Context.currentPos());
+				}
+			;
+			--i;
+		}
+
+		var inst = DeferredFactory.newInstExpr();
+		var blocks = 
+			[ macro var $subDfdName = $inst ]
+			.concat(result != null ? [ result ] : [])
+		;
+
+		return {
+			expr: EBlock(blocks),
+			pos: Context.currentPos()
+		};
 	}
 
 	public function buildAsyncCall(receiver: Expr, arg: Expr): Expr {

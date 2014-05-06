@@ -14,11 +14,11 @@ private class Target {
 
 	@:async
 	public function run(): Promise {
-		@:yield return;
-		// var n1 = @:yield callAsync(1);
-		// var n2 = @:yield callAsync(n1);
+		// @:yield return;
+		var n1 = @:yield callAsync(1);
+		var n2 = @:yield callAsync(n1);
 
-		// @:yield return callAsync2(n2);
+		@:yield return callAsync2(n2);
 	}
 
 	@:async

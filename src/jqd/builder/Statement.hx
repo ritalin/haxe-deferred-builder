@@ -1,6 +1,7 @@
 package jqd.builder;
 
 import haxe.macro.Expr;
+import haxe.ds.Option;
 import jqd.util.ImmutableEnumFlags;
 
 enum AsyncOption {
@@ -17,6 +18,7 @@ enum AsyncExpr {
 	SAsyncLoop(factory: Expr -> Expr, ctx: DeferredAstContext);
 	SAsyncReject(exception: Expr);
 	SAsyncCatch(ctx: DeferredAstContext, pos: Position, catches: Array<AsyncCatchExpr>);
+	SAsyncIf(ifExpr: Array<AsyncIfExpr>);
 }
 
 enum StatementContent {
@@ -36,6 +38,11 @@ typedef AsyncCatchExpr = {
 	var type: ComplexType;
 	var argName: String;
 	var pos: Position;
+}
+
+typedef AsyncIfExpr = {
+	var cond: Option<Expr>;
+	var block: Option<DeferredAstContext>;
 }
 
 typedef BuildResult = {
