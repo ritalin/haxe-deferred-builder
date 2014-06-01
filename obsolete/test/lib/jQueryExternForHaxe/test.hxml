@@ -1,0 +1,8 @@
+-js test/bin/Test.js
+-main Test
+-cp test
+-lib phantomjs
+--macro jQuery.haxe.Config.addPlugin('DummyPlugin')
+#--macro jQuery.haxe.Config.setNative('jQuery')
+#--macro jQuery.haxe.Config.setAllowDeprecated(true)
+-cmd phantomjs test/bin/Test.js
